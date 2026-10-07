@@ -1,7 +1,8 @@
 import { initChrome, esc, datasetUrl, officialUrl } from './app.js?v=4';
 import { lineChart, displaySeries } from './chart.js?v=5';
-import { EDITORIAL, topicFor, validPoints, comparison, visitorShare, observationAge } from './story-data.js';
+import { EDITORIAL, topicFor, validPoints, comparison, observationAge } from './story-data.js';
 import { LIVE_METRICS, pickLivePair } from './live-observations.js';
+import { QUIZ_DEFINITIONS, pickQuiz, buildQuiz } from './quiz-data.js';
 
 initChrome('home');
 const $ = id => document.getElementById(id);
@@ -116,24 +117,66 @@ $('surprise').addEventListener('click', () => {
   for (let i = registry.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [registry[i], registry[j]] = [registry[j], registry[i]]; }
   limit = 9; renderStories();
 });
-async function feature() {
-  try {
-    const total = registry.find(s => s.title === '入境旅客'), stay = registry.find(s => s.title === '留宿入境旅客');
-    if (!total || !stay) throw new Error('Missing series');
-    const [a, b] = await Promise.all([readSeries(total.id), readSeries(stay.id)]), share = visitorShare(a.points, b.points);
-    if (!share) throw new Error('No common period');
-    $('feature-visual').innerHTML = `<p class="visual-label">如果把旅客縮成 100 個人次…</p><div class="waffle concealed" id="waffle" aria-hidden="true">${Array.from({ length: 100 }, (_, i) => `<i class="${i < Math.round(share.share) ? 'day' : 'night'}"></i>`).join('')}</div><div class="waffle-legend" id="waffle-legend">先選一個答案，揭開這幅圖。</div><p class="visual-source">統計期間：${esc(share.period)} · 統計暨普查局<br>圖示四捨五入至整數百分比；非此刻入境人數。</p>`;
-    $('quiz').innerHTML = '<button type="button" data-answer="stay">多數會過夜</button><button type="button" data-answer="day">多數即日來回</button><button type="button" data-answer="half">剛好一半一半</button>';
-    $('quiz').addEventListener('click', event => {
-      const button = event.target.closest('[data-answer]'); if (!button) return;
-      const correct = share.share === 50 ? 'half' : share.share > 50 ? 'day' : 'stay';
-      $('quiz').querySelectorAll('button').forEach(b => { b.disabled = true; b.classList.toggle('correct', b.dataset.answer === correct); });
-      $('waffle').classList.remove('concealed');
-      $('waffle-legend').innerHTML = `<span><i class="legend-day"></i> 即日來回 ${num(share.share, 1)}%</span><span><i class="legend-night"></i> 留宿 ${num(100 - share.share, 1)}%</span>`;
-      $('quiz-result').innerHTML = `<p><strong>${button.dataset.answer === correct ? '估中了！' : '答案揭曉：'} ${correct === 'day' ? '多數即日來回。' : correct === 'stay' ? '多數會留宿。' : '剛好各佔一半。'}</strong><br>${esc(share.period)}共有 ${num(share.total, 0)} 入境旅客人次，其中 ${num(share.sameDay, 0)} 人次不過夜。</p><button type="button" class="text-button" data-open="${esc(total.id)}">接著看：旅客數目怎樣變化？ →</button>`;
-    });
-  } catch { $('quiz').innerHTML = '<p>旅客記錄暫時未能讀取，可先探索下方故事。</p>'; $('feature-visual').textContent = '每個故事，都由真實記錄開始。'; }
+let quizToken = 0;
+let previousQuizId = null;
+try { previousQuizId = sessionStorage.getItem('macau-last-quiz'); } catch {}
+function quizVisual(quiz, revealed) {
+  const maximum = Math.max(1, ...quiz.bars.map(bar => bar.value));
+  return `<p class="visual-label">${revealed ? '數據揭曉' : '先估一估，再揭開實際數值'}</p>
+    <div class="quiz-bars">${quiz.bars.map((bar, index) => `<div class="quiz-bar-row"><div class="quiz-bar-caption"><span>${esc(bar.label)}</span><strong>${revealed ? `${num(bar.value)} ${esc(quiz.unit)}` : '？'}</strong></div><div class="quiz-bar-track"><i class="quiz-bar-fill ${index ? 'second' : ''} ${revealed ? '' : 'concealed'}" style="width:${revealed ? `${bar.value / maximum * 100}%` : '55%'}"></i></div></div>`).join('')}</div>
+    <p class="visual-source">資料期間：${esc(quiz.period)}<br>${esc(quiz.note)}<br>資料來源：${quiz.sourceLinks.map(source => `<a href="${datasetUrl(source.datasetId)}">${esc(source.title)}</a>`).join('、')}</p>`;
 }
+async function feature() {
+  const token = ++quizToken;
+  $('next-quiz').disabled = true;
+  $('feature-heading').textContent = '正在找一個有趣的問題…';
+  $('feature-description').textContent = '每個答案都會從實際記錄計算。';
+  $('quiz').innerHTML = '<p role="status">正在讀取數據…</p>';
+  $('quiz-result').innerHTML = '';
+  $('feature-visual').innerHTML = '<span class="loading-copy">下一個問題，藏在數據裡。</span>';
+  const remaining = QUIZ_DEFINITIONS.filter(definition =>
+    definition.sources.every(title => registry.some(item => item.title === title)));
+  while (remaining.length) {
+    const definition = pickQuiz(remaining, previousQuizId);
+    remaining.splice(remaining.indexOf(definition), 1);
+    try {
+      const sources = await Promise.all(definition.sources.map(title =>
+        readSeries(registry.find(item => item.title === title).id)));
+      if (token !== quizToken) return;
+      const quiz = buildQuiz(definition, Object.fromEntries(definition.sources.map((title, index) => [title, sources[index]])));
+      if (!quiz) continue;
+      previousQuizId = quiz.id;
+      try { sessionStorage.setItem('macau-last-quiz', quiz.id); } catch {}
+      $('feature-heading').textContent = quiz.heading;
+      $('feature-description').textContent = `${quiz.intro} 資料期間：${quiz.period}。`;
+      $('feature-visual').innerHTML = quizVisual(quiz, false);
+      $('quiz').innerHTML = `<button type="button" data-answer="first">${esc(quiz.bars[0].label)}${quiz.word}</button><button type="button" data-answer="second">${esc(quiz.bars[1].label)}${quiz.word}</button><button type="button" data-answer="equal">兩者一樣</button>`;
+      $('next-quiz').disabled = false;
+      $('quiz').onclick = event => {
+        const button = event.target.closest('[data-answer]');
+        if (!button || button.disabled) return;
+        $('quiz').querySelectorAll('button').forEach(option => {
+          option.disabled = true;
+          option.classList.toggle('correct', option.dataset.answer === quiz.correct);
+        });
+        $('feature-visual').innerHTML = quizVisual(quiz, true);
+        const answer = quiz.correct === 'equal' ? '兩者一樣。' : `${quiz.bars[quiz.correct === 'first' ? 0 : 1].label}${quiz.word}。`;
+        const difference = Math.abs(quiz.bars[0].value - quiz.bars[1].value);
+        const differenceUnit = quiz.unit === '%' ? '個百分點' : quiz.unit;
+        $('quiz-result').innerHTML = `<p><strong>${button.dataset.answer === quiz.correct ? '估中了！' : '答案揭曉：'} ${esc(answer)}</strong><br>${esc(quiz.bars[0].label)}：${num(quiz.bars[0].value)} ${esc(quiz.unit)}；${esc(quiz.bars[1].label)}：${num(quiz.bars[1].value)} ${esc(quiz.unit)}。相差 ${num(difference)} ${esc(differenceUnit)}。</p>`;
+      };
+      return;
+    } catch { if (token !== quizToken) return; }
+  }
+  if (token !== quizToken) return;
+  $('feature-heading').textContent = '暫時找不到可驗證的題目';
+  $('feature-description').textContent = '可以先探索下方的數據故事。';
+  $('quiz').innerHTML = '';
+  $('quiz').onclick = null;
+  $('feature-visual').textContent = '每個故事，都由真實記錄開始。';
+  $('next-quiz').disabled = false;
+}
+$('next-quiz').addEventListener('click', feature);
 
 const liveSources = {
   air: 'https://www.smg.gov.mo/smg/airQuality/latestAirConcentration.json',
