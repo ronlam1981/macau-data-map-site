@@ -1,0 +1,64 @@
+name: 更新數字看澳門資料
+
+on:
+  schedule:
+    # GitHub cron uses UTC. :17 hourly refreshes the weather fallback.
+    - cron: '17 * * * *'
+    # 01:37 UTC is 09:37 in Macau; check publications and open-data series daily.
+    - cron: '37 1 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Choose which data to refresh'
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - observations
+          - statistics
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: macau-data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 更新天氣及空氣備用快照
+        if: github.event.schedule == '17 * * * *' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'statistics')
+        run: python3 tools/refresh_observations.py
+      - name: 讀取統計局發布時間表（只讀日期）
+        if: github.event.schedule == '37 1 * * *' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'observations')
+        run: python3 tools/refresh_release_schedule.py
+      - name: 從政府數據開放平台核對及更新統計
+        if: github.event.schedule == '37 1 * * *' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'observations')
+        env:
+          DATA_GOV_MO_API_KEY: ${{ secrets.DATA_GOV_MO_API_KEY }}
+        run: python3 tools/refresh_statistics.py
+      - name: 儲存有變更的快照並請求 Pages 建置
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add -A data
+          if git diff --cached --quiet; then
+            echo 'No snapshot changes.'
+            exit 0
+          fi
+          git config user.name 'Macau Data Map Bot'
+          git config user.email 'macau-data-map-bot@users.noreply.github.com'
+          git commit -m 'chore(data): refresh verified snapshots'
+          git push origin HEAD:main
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds"

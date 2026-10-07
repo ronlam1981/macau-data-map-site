@@ -6,6 +6,7 @@ import { LIVE_METRICS, pickLiveObservation } from './live-observations.js?v=2';
 import { CITY_SIGNALS, pickCitySignal } from './city-signals.js?v=2';
 import { QUIZ_DEFINITIONS, pickQuiz, buildQuiz } from './quiz-data.js';
 import { storyShareText } from './share-story.js';
+import { loadReleaseSchedule, loadSeriesStatus, relevantRelease, formatReleaseDate, DSEC_TIMETABLE_URL } from './release-info.js?v=1';
 
 initChrome('home');
 const $ = id => document.getElementById(id);
@@ -31,6 +32,7 @@ let saved = new Set();
 try { const value = JSON.parse(localStorage.getItem('macau-saved-stories') || '[]'); if (Array.isArray(value)) saved = new Set(value.filter(x => typeof x === 'string')); } catch {}
 let registry = [], selection = [], topic = '全部', query = '', savedOnly = false, limit = 9, renderedCount = 0, renderToken = 0;
 let snapshotAt = '網站已儲存資料';
+const releaseSchedulePromise = loadReleaseSchedule();
 let soundOn = true;
 try { soundOn = localStorage.getItem('macau-sound-on') !== 'false'; } catch {}
 let audioContext;
@@ -197,8 +199,12 @@ async function openStory(id) {
   try {
     const raw = await readSeries(s.id), data = displaySeries(raw), latest = data.points.at(-1);
     const context = await shareContext(s, raw.points);
+    const release = relevantRelease(s.datasetId, await releaseSchedulePromise);
+    const checked = (await loadSeriesStatus())[s.id];
+    const sourceSnapshot = checked?.lastChangedAt || snapshotAt;
+    const releaseHtml = s.dept === '統計暨普查局' ? `<p class="source-release">${release ? `<strong>統計局${release.kind === 'next' ? '下次相關預定發布' : '最近相關發布安排'}：</strong>${esc(formatReleaseDate(release.date))} · ${esc(release.title)}。<a href="${DSEC_TIMETABLE_URL}" target="_blank" rel="noopener">發布時間表 ↗</a><br>` : ''}<span>${checked ? `本站於 ${esc(checked.checkedAt)} 成功讀取政府數據開放平台，最新期間 ${esc(checked.latestPeriod)}。` : '本站尚未完成政府數據開放平台的新一期自動核對。'} 統計局公布不等於開放平台已更新；本站只從開放平台取得數值。</span></p>` : '';
     if (token !== detailToken || !dialog.open) return;
-    $('story-detail').innerHTML = `<p class="eyebrow">${esc(topicFor(s))} / 數據故事</p><h2 id="dialog-title">${esc(heading(s))}</h2><p class="detail-value">${num(latest[1])}<small>${esc(data.unit || '')}</small></p><p>${esc(latest[0])} · ${esc(deltaText(data))}</p><p class="detail-explanation">${esc(explanation(s))}${raw.remarks ? `<br>來源備註：${esc(raw.remarks)}` : ''}</p>${shareDetail(context)}<div class="detail-chart chart-box" id="detail-chart"></div><p class="muted">${esc(s.title)} · 單位：${esc(data.unit || '來源未標示')}。折線縱軸按資料範圍縮放。</p><details class="table-view"><summary>查看每一期實際數值（${data.points.length} 期）</summary><div class="scroll"><table class="data"><thead><tr><th>期間</th><th>${esc(data.unit || '數值')}</th></tr></thead><tbody>${[...data.points].reverse().map(([p, v]) => `<tr><td>${esc(p)}</td><td>${num(v, 6)}</td></tr>`).join('')}</tbody></table></div></details><div class="detail-source"><p>提供：${esc(s.dept)}<br>網站資料快照：${esc(snapshotAt)}<br>比較方法：比對同一指標的去年相同期間；百分率使用百分點。沒有可對應資料時不計算同比；統計口徑變動請參閱來源備註。</p><a href="${officialUrl(s.datasetId)}" target="_blank" rel="noopener">官方原始資料 ↗</a> · <a href="${datasetUrl(s.datasetId)}">完整數據集內容 →</a>${context ? ` · <a href="${datasetUrl(context.totalSeries.datasetId)}">${esc(context.totalSeries.title)}總數 →</a>` : ''}</div><div class="detail-actions"><button class="btn" type="button" id="share-story">複製故事連結</button><span id="share-status" role="status"></span></div>`;
+    $('story-detail').innerHTML = `<p class="eyebrow">${esc(topicFor(s))} / 數據故事</p><h2 id="dialog-title">${esc(heading(s))}</h2><p class="detail-value">${num(latest[1])}<small>${esc(data.unit || '')}</small></p><p>${esc(latest[0])} · ${esc(deltaText(data))}</p><p class="detail-explanation">${esc(explanation(s))}${raw.remarks ? `<br>來源備註：${esc(raw.remarks)}` : ''}</p>${shareDetail(context)}<div class="detail-chart chart-box" id="detail-chart"></div><p class="muted">${esc(s.title)} · 單位：${esc(data.unit || '來源未標示')}。折線縱軸按資料範圍縮放。</p><details class="table-view"><summary>查看每一期實際數值（${data.points.length} 期）</summary><div class="scroll"><table class="data"><thead><tr><th>期間</th><th>${esc(data.unit || '數值')}</th></tr></thead><tbody>${[...data.points].reverse().map(([p, v]) => `<tr><td>${esc(p)}</td><td>${num(v, 6)}</td></tr>`).join('')}</tbody></table></div></details><div class="detail-source"><p>提供：${esc(s.dept)}<br>網站資料快照：${esc(sourceSnapshot)}<br>比較方法：比對同一指標的去年相同期間；百分率使用百分點。沒有可對應資料時不計算同比；統計口徑變動請參閱來源備註。</p><a href="${officialUrl(s.datasetId)}" target="_blank" rel="noopener">官方原始資料 ↗</a> · <a href="${datasetUrl(s.datasetId)}">完整數據集內容 →</a>${context ? ` · <a href="${datasetUrl(context.totalSeries.datasetId)}">${esc(context.totalSeries.title)}總數 →</a>` : ''}</div>${releaseHtml}<div class="detail-actions"><button class="btn" type="button" id="share-story">複製故事連結</button><span id="share-status" role="status"></span></div>`;
     lineChart($('detail-chart'), { ...data, title: s.title }, { height: 360 });
     $('share-story').addEventListener('click', async () => {
       try {

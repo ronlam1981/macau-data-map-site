@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>數據集 — 數字看澳門</title>
-<link rel="stylesheet" href="assets/app.css?v=8">
+<link rel="stylesheet" href="assets/app.css?v=9">
 </head>
 <body>
 
@@ -23,7 +23,7 @@
 <main class="wrap" id="main"><p class="empty">載入中…</p></main>
 
 <footer class="foot">
-  <div class="wrap">數據來源：<a href="https://data.gov.mo" target="_blank" rel="noopener">data.gov.mo</a>　本站為非官方整理，數據版權歸原提供部門所有。<p class="site-credit">網站策劃及製作：林宇滔</p></div>
+  <div class="wrap">數據來源：<a href="https://data.gov.mo" target="_blank" rel="noopener">data.gov.mo</a>　本站為非官方整理，數據版權歸原提供部門所有。<p>統計數值只從政府數據開放平台取得；每日自動核對須先取得 API 金鑰。地點及目錄資料現仍人工更新。<a href="index.html#data-policy">查看資料來源及數據更新安排 →</a></p><p class="site-credit">網站策劃及製作：林宇滔</p></div>
 </footer>
 
 <script type="module">
@@ -31,6 +31,7 @@ import { initChrome, catalog, seriesIndex, series, THEME_ICON, esc, officialUrl 
 import { lineChart, fmtNum, displaySeries } from "./assets/chart.js?v=5";
 import { renderEmergency } from "./assets/emergency.js";
 import { renderDerived } from "./assets/derived-view.js?v=3";
+import { loadReleaseSchedule, loadSeriesStatus, relevantRelease, formatReleaseDate } from "./assets/release-info.js?v=1";
 initChrome("");
 
 const id = new URLSearchParams(location.search).get("id");
@@ -42,14 +43,22 @@ if (!d) {
   main.innerHTML = '<p class="empty">找不到這個數據集。<a href="datasets.html">回到數據目錄</a></p>';
 } else {
   document.title = `${d.name} — 數字看澳門`;
-  const mine = (await seriesIndex()).filter(s => s.datasetId === d.id);
+  const [allSeries, schedule, seriesStatus] = await Promise.all([seriesIndex(), loadReleaseSchedule(), loadSeriesStatus()]);
+  const mine = allSeries.filter(s => s.datasetId === d.id);
+  const release = relevantRelease(d.id, schedule);
+  const checked = mine.length ? seriesStatus[mine[0].id] : null;
+  const latestPeriod = mine[0]?.last?.[0];
 
   main.innerHTML = `
     <p class="crumb"><a href="datasets.html">數據目錄</a> ／
       <a href="datasets.html?theme=${encodeURIComponent(d.theme)}">${THEME_ICON[d.theme] || ""} ${esc(d.theme)}</a></p>
     <h1 style="font-size:31px; margin:0 0 10px">${esc(d.name)}</h1>
     ${d.desc ? `<p class="lede" style="font-size:17px">${esc(d.desc).replace(/\n/g, "<br>")}</p>` : ""}
-    <p class="source-line">${esc(d.dept)}提供 · ${esc(d.freq || "按需要")}更新 · 目錄更新 ${esc((d.updated || "—").slice(0, 10))}</p>
+    <p class="source-line">${esc(d.dept)}提供 · 官方${esc(d.freq || "按需要")}更新 · 開放平台目錄標示更新 ${esc((d.updated || "—").slice(0, 10))}</p>
+    ${d.dept === '統計暨普查局' ? `<div class="update-chain">
+      <p><strong>統計局發布預告：</strong>${release ? `統計暨普查局${release.kind === 'next' ? '預定於' : '時間表列出'} <a href="${esc(schedule.source)}" target="_blank" rel="noopener">${esc(formatReleaseDate(release.date))}發布「${esc(release.title)}」 ↗</a>。` : `本站暫未辨識到可可靠對應的下次日期；<a href="https://www.dsec.gov.mo/TimeTables.aspx?lang=zh-MO" target="_blank" rel="noopener">可查看官方時間表 ↗</a>。`}這是統計局的公布安排，不代表相關數據已在政府數據開放平台上架。</p>
+      <p><strong>數據來源與更新：</strong>本站以<a href="${officialUrl(d.id)}" target="_blank" rel="noopener">澳門政府數據開放平台</a>作為統計數值的統一來源，並以統計局時間表提供發布預告。統計局公布新一期後，仍須待開放平台更新，再由本站讀取及核對，才會顯示新數字；${latestPeriod ? `目前顯示 ${esc(latestPeriod)}。` : '目前顯示的資料期間以圖表標示為準。'}${checked ? `本站上次成功核對：${esc(checked.checkedAt)}，平台最新期間 ${esc(checked.latestPeriod)}。` : '本站尚未完成此指標的新一期自動核對。'}</p>
+    </div>` : ''}
     <div id="interpreted"></div>
     <div id="charts"></div>
     <div id="places"></div>
@@ -58,7 +67,10 @@ if (!d) {
     <details class="source-details"><summary>資料來源及原始檔案</summary>
       <dl class="meta">
         <div><dt>提供部門</dt><dd>${esc(d.dept)}</dd></div>
-        <div><dt>更新頻率</dt><dd>${esc(d.freq || "—")}</dd></div>
+        <div><dt>官方更新頻率</dt><dd>${esc(d.freq || "—")}</dd></div>
+        <div><dt>本站目錄快照</dt><dd>${esc(cat.generated || "—")}</dd></div>
+        ${checked ? `<div><dt>平台數值核對</dt><dd>${esc(checked.checkedAt)} · 最新 ${esc(checked.latestPeriod)}</dd></div>` : ''}
+        <div><dt>本站檢查目標</dt><dd>統計數值每日自動核對待平台 API 金鑰啟用；地點及目錄每週人工檢查，<a href="index.html#data-policy">詳見更新安排</a>。</dd></div>
         <div><dt>首次發佈</dt><dd>${esc((d.published || "—").slice(0, 10))}</dd></div>
       </dl>
       ${d.localFiles.length ? `<div class="files">${d.localFiles.map(f => `<div class="file"><span class="nm">${esc(f)}</span></div>`).join("")}</div>` : ""}
@@ -144,7 +156,7 @@ if (!d) {
             Temperature_daily_min:"當日最低氣溫",Humidity:"濕度",DewPoint:"露點",WindSpeed:"風速",
             WindDirection:"風向",WindGust:"陣風",Rainfall:"雨量"};
           document.getElementById("preview-table").innerHTML = `
-            ${f.count ? `<p class="preview-count">共 ${(+f.count).toLocaleString("zh-Hant")} 筆記錄 · 下方顯示首 ${rows.length} 筆</p>` : `<p class="preview-count">顯示首 ${rows.length} 行有內容的資料</p>`}
+            ${f.count ? `<p class="preview-count">共 ${(+f.count).toLocaleString("zh-Hant")} 筆記錄 · 下方顯示${f.previewOrder === 'latest' ? '最新' : '首'} ${rows.length} 筆</p>` : `<p class="preview-count">顯示首 ${rows.length} 行有內容的資料</p>`}
             ${f.snapshotAt ? `<p class="muted">網頁資料快照：${esc(f.snapshotAt)}</p>` : ""}
             <div class="scroll preview-scroll"><table class="data preview-table">
               ${headers.length ? `<thead><tr>${cols.map(k => `<th>${esc(pretty[headers[k]] || headers[k])}</th>`).join("")}</tr></thead>` : ""}
