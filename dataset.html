@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>數據集 — 數字看澳門</title>
+<link rel="stylesheet" href="assets/app.css?v=5">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html">數字<span>看澳門</span></a>
+    <nav class="nav">
+      <a href="index.html" data-page="home">首頁</a>
+      <a href="datasets.html" data-page="datasets">數據目錄</a>
+      <a href="apis.html" data-page="apis">API 探索</a>
+      <button class="theme-btn" type="button"></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" id="main"><p class="empty">載入中…</p></main>
+
+<footer class="foot">
+  <div class="wrap">數據來源：<a href="https://data.gov.mo" target="_blank" rel="noopener">data.gov.mo</a>　本站為非官方整理，數據版權歸原提供部門所有。</div>
+</footer>
+
+<script type="module">
+import { initChrome, catalog, seriesIndex, series, THEME_ICON, esc, officialUrl } from "./assets/app.js?v=4";
+import { lineChart, fmtNum, displaySeries } from "./assets/chart.js?v=5";
+import { renderEmergency } from "./assets/emergency.js";
+import { renderDerived } from "./assets/derived-view.js?v=3";
+initChrome("");
+
+const id = new URLSearchParams(location.search).get("id");
+const cat = await catalog();
+const d = cat.datasets.find(x => x.id === id);
+const main = document.getElementById("main");
+
+if (!d) {
+  main.innerHTML = '<p class="empty">找不到這個數據集。<a href="datasets.html">回到數據目錄</a></p>';
+} else {
+  document.title = `${d.name} — 數字看澳門`;
+  const mine = (await seriesIndex()).filter(s => s.datasetId === d.id);
+
+  main.innerHTML = `
+    <p class="crumb"><a href="datasets.html">數據目錄</a> ／
+      <a href="datasets.html?theme=${encodeURIComponent(d.theme)}">${THEME_ICON[d.theme] || ""} ${esc(d.theme)}</a></p>
+    <h1 style="font-size:31px; margin:0 0 10px">${esc(d.name)}</h1>
+    ${d.desc ? `<p class="lede" style="font-size:17px">${esc(d.desc).replace(/\n/g, "<br>")}</p>` : ""}
+    <p class="source-line">${esc(d.dept)}提供 · ${esc(d.freq || "按需要")}更新 · 目錄更新 ${esc((d.updated || "—").slice(0, 10))}</p>
+    <div id="interpreted"></div>
+    <div id="charts"></div>
+    <div id="places"></div>
+    <div id="preview"></div>
+    <section class="related-section"><h2>同一部門還提供甚麼？</h2><div class="related-grid" id="related"></div></section>
+    <details class="source-details"><summary>資料來源及原始檔案</summary>
+      <dl class="meta">
+        <div><dt>提供部門</dt><dd>${esc(d.dept)}</dd></div>
+        <div><dt>更新頻率</dt><dd>${esc(d.freq || "—")}</dd></div>
+        <div><dt>首次發佈</dt><dd>${esc((d.published || "—").slice(0, 10))}</dd></div>
+      </dl>
+      ${d.localFiles.length ? `<div class="files">${d.localFiles.map(f => `<div class="file"><span class="nm">${esc(f)}</span></div>`).join("")}</div>` : ""}
+      ${d.externalUrls?.length ? `<p class="muted">官方資料網址：</p><div class="files">${d.externalUrls.map((url, i) =>
+        `<a class="file" href="${esc(url)}" target="_blank" rel="noopener">資料來源 ${i + 1} ↗</a>`).join("")}</div>` : ""}
+    </details>
+    <p class="official-link"><a class="btn ghost" href="${officialUrl(d.id)}" target="_blank" rel="noopener">到政府平台查看原始數據 ↗</a></p>`;
+
+  const box = document.getElementById("charts");
+  if (d.hasEmergency) {
+    await renderEmergency(box);
+  } else if (mine.length) {
+    box.innerHTML = `<section class="story-section">
+      <div class="story-eyebrow">${esc(d.dept)} · 長期趨勢</div>
+      <h2>數據隨時間怎樣改變？</h2>
+      ${mine.map((s, i) => `
+        <div class="chart-card" style="margin-bottom:16px">
+          <div class="chart-head">
+            <div class="chart-title">${esc(s.title)}</div>
+            <div class="insight" id="insight${i}"></div>
+            <div class="chart-sub">${esc(s.periodType || "")}數據 · ${esc(s.minYear)}–${esc(s.maxYear)} · 單位：${esc(["百萬澳門元", "千澳門元"].includes(s.unit) ? "億澳門元" : s.unit || "—")}</div>
+          </div>
+          <div class="chart-box" id="c${i}"></div>
+          <details class="table-view"><summary>查看每期數值</summary>
+            <div class="scroll"><table class="data" id="t${i}">
+              <thead><tr><th>期間</th><th>數值${s.unit ? "（" + esc(["百萬澳門元", "千澳門元"].includes(s.unit) ? "億澳門元" : s.unit) + "）" : ""}</th></tr></thead>
+              <tbody></tbody></table></div>
+          </details>
+        </div>`).join("")}
+    </section>`;
+    for (const [i, s] of mine.entries()) {
+      const sd = displaySeries(await series(s.id));
+      const first = sd.points[0], last = sd.points.at(-1);
+      const delta = last[1] - first[1];
+      const change = first[1] ? `${delta >= 0 ? "增加" : "減少"}${Math.abs(delta / first[1] * 100).toFixed(1)}%` : "";
+      document.getElementById("insight" + i).innerHTML = `<strong>${fmtNum(last[1], sd.unit === "億澳門元" ? 2 : null)}<small>${esc(sd.unit || "")}</small></strong>
+        <span>最新：${esc(last[0])}<br>較 ${esc(first[0])} ${change || "有所變化"}</span>`;
+      lineChart(document.getElementById("c" + i), sd, { height: 330 });
+      document.querySelector(`#t${i} tbody`).innerHTML =
+        [...sd.points].reverse().map(([p, v]) =>
+          `<tr><td>${esc(p)}</td><td>${fmtNum(v, sd.unit === "億澳門元" ? 2 : null)}</td></tr>`).join("");
+    }
+  }
+  const enriched = await renderDerived(d, Boolean(d.hasEmergency || mine.length));
+  if (d.hasPreview) {
+    try {
+      const payload = await (await fetch(`data/previews/${encodeURIComponent(d.id)}.json?v=5`)).json();
+      const files = payload.files || (payload.rows ? [payload] : []);
+      if (files.length) {
+        const initialIndex = files.length - 1;
+        document.getElementById("preview").innerHTML = `${enriched ? '<details class="source-preview"><summary>查看來源檔案的資料預覽</summary>' : '<section class="story-section"><div class="story-eyebrow">實際資料</div><h2>打開看看內容</h2>'}
+          <p class="lede">可切換資料來源，直接看記錄和數值。以下為預覽，完整資料仍以政府發布版本為準。</p>
+          ${files.length > 1 ? '<div class="range preview-tabs" id="preview-tabs"></div>' : ""}
+          <div id="preview-table"></div>
+        ${enriched ? '</details>' : '</section>'}`;
+        const tabs = document.getElementById("preview-tabs");
+        if (tabs) {
+          tabs.innerHTML = files.map((f, i) => `<button type="button" class="chip" data-index="${i}" aria-pressed="${i === initialIndex}">${esc(f.source || `資料 ${i + 1}`)}</button>`).join("");
+          tabs.addEventListener("click", e => {
+            const b = e.target.closest("[data-index]"); if (!b) return;
+            tabs.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+            showPreview(+b.dataset.index);
+          });
+        }
+        function showPreview(i) {
+          const f = files[i];
+          const first = f.rows?.[0] || [];
+          const embeddedHeader = !f.columns?.length && f.rows?.length > 1 &&
+            first.some(v => /^(year|movYear|port|items|total|cumulativeNumber|vehicles)$/i.test(String(v)));
+          const headers = f.columns?.length ? f.columns : embeddedHeader ? first : [];
+          const rows = embeddedHeader ? f.rows.slice(1) : f.rows;
+          const languageDuplicate = /(?:Zh|Cn|Pt|En|Gb|_gb|_pt|_en|_sc|_eng)$/i;
+          const keep = headers.length
+            ? headers.map((name, index) => ({ name, index }))
+                .filter(({name}) => !languageDuplicate.test(name) || /(?:Zh|_cn|_tc|Chinese)$/i.test(name))
+                .slice(0, 9).map(x => x.index)
+            : null;
+          const cols = keep?.length ? keep : headers.map((_, index) => index);
+          const pretty = {nameZh:"名稱",addressZh:"地址",location:"座標",telZh:"電話",openHourZh:"開放時間",
+            CollectionPeriod:"期間",Imported:"進口量",value:"數值",periodString:"期間",name_tc:"名稱",address_tc:"地址",
+            year:"年份",movYear:"年份",total:"人數",cumulativeNumber:"累計持證人數",port:"口岸",items:"車種",vehicles:"車次",remarkCh:"備註",
+            stationname:"觀測站",RecordTime:"觀測時間",Temperature:"氣溫",Temperature_daily_max:"當日最高氣溫",
+            Temperature_daily_min:"當日最低氣溫",Humidity:"濕度",DewPoint:"露點",WindSpeed:"風速",
+            WindDirection:"風向",WindGust:"陣風",Rainfall:"雨量"};
+          document.getElementById("preview-table").innerHTML = `
+            ${f.count ? `<p class="preview-count">共 ${(+f.count).toLocaleString("zh-Hant")} 筆記錄 · 下方顯示首 ${rows.length} 筆</p>` : `<p class="preview-count">顯示首 ${rows.length} 行有內容的資料</p>`}
+            ${f.snapshotAt ? `<p class="muted">網頁資料快照：${esc(f.snapshotAt)}</p>` : ""}
+            <div class="scroll preview-scroll"><table class="data preview-table">
+              ${headers.length ? `<thead><tr>${cols.map(k => `<th>${esc(pretty[headers[k]] || headers[k])}</th>`).join("")}</tr></thead>` : ""}
+              <tbody>${rows.map(row => `<tr>${(cols ? cols.map(k => row[k]) : row).map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody>
+            </table></div>`;
+        }
+        showPreview(initialIndex);
+      }
+    } catch (e) { /* 沒有可解析的試算表時仍保留官方連結 */ }
+  }
+  if (!d.hasEmergency && !mine.length && !d.hasPreview && !enriched) {
+    box.innerHTML = `<section class="story-section"><h2>暫時未能顯示資料內容</h2>
+      <p class="lede">${d.openType === 1 ? "此數據集須先在政府平台登記使用。" :
+        "目前沒有可讀取的資料紀錄，可能是即時接口暫無回應或來源資料為空。"}
+      可到政府平台查看最新狀態。</p></section>`;
+  }
+  const related = cat.datasets.filter(x => x.dept === d.dept && x.id !== d.id).slice(0, 6);
+  document.getElementById("related").innerHTML = related.map(x =>
+    `<a class="related-card" href="dataset.html?id=${encodeURIComponent(x.id)}"><strong>${esc(x.name)}</strong><span>${esc(x.theme)}</span></a>`).join("");
+}
+</script>
+</body>
+</html>

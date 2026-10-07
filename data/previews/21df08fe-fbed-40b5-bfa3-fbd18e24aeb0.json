@@ -1,0 +1,1 @@
+{"files":[{"columns":["欄位","內容"],"rows":[["_embedded","[{\"_id\": \"6ab3fb0a0d7bb54977e5b01c\", \"bookingDate\": \"2026-10-01\", \"facilityCode\": \"HBH\", \"timeSlot\": 14, \"bookingStatusCode\": \"N\", \"bookingStatusTC\": \"不可預約\", \"bookingStatusEN\": \"No"],["_size","9344"],["_total_pages","94"],["_returned","100"]],"source":"sport_complex_facilities_booking_public.json"}]}

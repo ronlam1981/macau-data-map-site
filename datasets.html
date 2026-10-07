@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>數據目錄 — 數字看澳門</title>
+<link rel="stylesheet" href="assets/app.css?v=5">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html">數字<span>看澳門</span></a>
+    <nav class="nav">
+      <a href="index.html" data-page="home">首頁</a>
+      <a href="datasets.html" data-page="datasets">數據目錄</a>
+      <a href="apis.html" data-page="apis">API 探索</a>
+      <button class="theme-btn" type="button"></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1 style="font-size:30px; margin:34px 0 6px">數據目錄</h1>
+  <p class="muted" id="count" style="margin:0 0 22px">載入中…</p>
+
+  <div class="search">
+    <input type="search" id="q" placeholder="搜尋數據集名稱、描述或部門，例如「巴士」「用水」「旅客」" autocomplete="off">
+    <select id="sort">
+      <option value="views">最多人看</option>
+      <option value="updated">最近更新</option>
+      <option value="name">名稱排序</option>
+      <option value="series">有圖表優先</option>
+      <option value="places">有地圖優先</option>
+    </select>
+    <select id="department" aria-label="按提供部門篩選">
+      <option value="">所有提供部門</option>
+    </select>
+  </div>
+  <div class="browse-label">按數據分類</div>
+  <div class="chips" id="chips"></div>
+  <details class="department-browser"><summary>按提供部門瀏覽 <span id="dept-count"></span></summary>
+    <div class="department-grid" id="departments"></div>
+  </details>
+  <div class="list" id="list"></div>
+  <p id="more" style="text-align:center; margin:26px 0">
+    <button class="btn ghost" id="more-btn" type="button">載入更多</button>
+  </p>
+</main>
+
+<footer class="foot">
+  <div class="wrap">數據來源：<a href="https://data.gov.mo" target="_blank" rel="noopener">data.gov.mo</a>　本站為非官方整理。</div>
+</footer>
+
+<script type="module">
+import { initChrome, catalog, THEME_ICON, esc, datasetUrl } from "./assets/app.js?v=4";
+initChrome("datasets");
+
+const cat = await catalog();
+const derived = await fetch('data/derived/index.json?v=2').then(r => r.ok ? r.json() : {}).catch(() => ({}));
+const params = new URLSearchParams(location.search);
+let theme = params.get("theme") || "";
+let department = params.get("department") || "";
+let q = params.get("q") || "";
+let shown = 0, PAGE = 40;
+
+document.getElementById("q").value = q;
+const departmentCounts = [...new Map(cat.datasets.map(d => [d.dept, 0]))].map(([name]) => ({
+  name, count: cat.datasets.filter(d => d.dept === name).length,
+  charts: cat.datasets.filter(d => d.dept === name && d.hasSeries).length
+})).filter(d => d.name).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-Hant"));
+document.getElementById("department").innerHTML = '<option value="">所有提供部門</option>' +
+  departmentCounts.map(d => `<option value="${esc(d.name)}">${esc(d.name)}（${d.count}）</option>`).join("");
+document.getElementById("department").value = department;
+document.getElementById("dept-count").textContent = `· ${departmentCounts.length} 個部門`;
+document.getElementById("departments").innerHTML = departmentCounts.map(d =>
+  `<button class="department-item" type="button" data-department="${esc(d.name)}">
+    <strong>${esc(d.name)}</strong><span>${d.count} 個數據集${d.charts ? ` · ${d.charts} 個可看圖表` : ""}</span></button>`).join("");
+document.getElementById("chips").innerHTML =
+  [{ name: "全部", count: cat.total }, ...cat.themes].map(t => {
+    const on = (t.name === "全部" && !theme) || t.name === theme;
+    return `<button class="chip" type="button" aria-pressed="${on}" data-t="${esc(t.name === "全部" ? "" : t.name)}">
+      ${t.name === "全部" ? "" : (THEME_ICON[t.name] || "") + " "}${esc(t.name)} ${t.count}</button>`;
+  }).join("");
+
+function filtered() {
+  const needle = q.trim().toLowerCase();
+  let out = cat.datasets.filter(d =>
+    (!theme || d.theme === theme) &&
+    (!department || d.dept === department) &&
+    (!needle || (d.name + " " + d.desc + " " + d.dept + " " + d.name_pt).toLowerCase().includes(needle)));
+  const s = document.getElementById("sort").value;
+  if (s === "updated") out = [...out].sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+  else if (s === "name") out = [...out].sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+  else if (s === "series") out = [...out].sort((a, b) => (Number(b.hasSeries || !!derived[b.id]?.series) - Number(a.hasSeries || !!derived[a.id]?.series)) || (b.views - a.views));
+  else if (s === "places") out = [...out].sort((a, b) => (Number(!!derived[b.id]?.places) - Number(!!derived[a.id]?.places)) || (b.views - a.views));
+  return out;
+}
+
+function render(reset = true) {
+  const rows = filtered();
+  if (reset) { shown = 0; document.getElementById("list").innerHTML = ""; }
+  document.getElementById("count").textContent =
+    `${rows.length.toLocaleString("zh-Hant")} 個數據集${theme ? " · " + theme : ""}${department ? " · " + department : ""}${q ? " · 關鍵詞「" + q + "」" : ""}`;
+  const slice = rows.slice(shown, shown + PAGE);
+  document.getElementById("list").insertAdjacentHTML("beforeend", slice.map(d => `
+    <a class="row" href="${datasetUrl(d.id)}">
+      <div class="t">${esc(d.name)}</div>
+      ${d.desc ? `<div class="d">${esc(d.desc)}</div>` : ""}
+      <div class="m">
+        <span class="tag">${THEME_ICON[d.theme] || ""} ${esc(d.theme)}</span>
+        <span class="tag">${esc(d.dept)}</span>
+        ${d.hasSeries || derived[d.id]?.series ? '<span class="tag hi">📈 可看圖表</span>' : ""}
+        ${derived[d.id]?.places ? '<span class="tag hi">📍 可看地圖</span>' : ""}
+        ${derived[d.id]?.bus ? '<span class="tag hi">🚌 可看路線與站序</span>' : ""}
+        ${d.hasPreview ? '<span class="tag hi">可看資料內容</span>' : ""}
+        <span class="tag">${esc(d.freq || "—")}更新</span>
+      </div>
+    </a>`).join("") || (reset ? '<p class="empty">找不到符合的數據集，試試其他關鍵詞。</p>' : ""));
+  shown += slice.length;
+  document.getElementById("more").style.display = shown < rows.length ? "" : "none";
+}
+
+document.getElementById("chips").addEventListener("click", e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  theme = b.dataset.t;
+  document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", c === b));
+  const u = new URL(location); theme ? u.searchParams.set("theme", theme) : u.searchParams.delete("theme");
+  history.replaceState(null, "", u); render();
+});
+let timer;
+document.getElementById("q").addEventListener("input", e => {
+  clearTimeout(timer);
+  timer = setTimeout(() => { q = e.target.value; render(); }, 160);
+});
+document.getElementById("sort").addEventListener("change", () => render());
+function setDepartment(value) {
+  department = value;
+  document.getElementById("department").value = value;
+  const u = new URL(location);
+  value ? u.searchParams.set("department", value) : u.searchParams.delete("department");
+  history.replaceState(null, "", u);
+  document.querySelector(".department-browser").open = false;
+  render();
+}
+document.getElementById("department").addEventListener("change", e => setDepartment(e.target.value));
+document.getElementById("departments").addEventListener("click", e => {
+  const b = e.target.closest("[data-department]"); if (b) setDepartment(b.dataset.department);
+});
+document.getElementById("more-btn").addEventListener("click", () => render(false));
+render();
+</script>
+</body>
+</html>

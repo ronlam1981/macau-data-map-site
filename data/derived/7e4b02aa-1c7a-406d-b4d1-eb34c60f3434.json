@@ -1,0 +1,1 @@
+{"datasetId":"7e4b02aa-1c7a-406d-b4d1-eb34c60f3434","series":[{"title":"attendant","unit":"","points":[["2022年",0.0],["2023年",737.0],["2024年",410.0],["2025年",1491.0]],"latestPeriod":"2025年","latest":1491.0},{"title":"case","unit":"","points":[["2022年",0.0],["2023年",5.0],["2024年",2.0],["2025年",10.0]],"latestPeriod":"2025年","latest":10.0}],"seriesSource":"dst_tsp_stat.xlsx"}

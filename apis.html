@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 數據探索 — 數字看澳門</title>
+<link rel="stylesheet" href="assets/app.css?v=5">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="index.html">數字<span>看澳門</span></a>
+  <nav class="nav"><a href="index.html" data-page="home">首頁</a>
+    <a href="datasets.html" data-page="datasets">數據目錄</a>
+    <a href="apis.html" data-page="apis">API 探索</a>
+    <button class="theme-btn" type="button"></button></nav>
+</div></header>
+<main class="wrap">
+  <section style="padding-top:38px;padding-bottom:22px">
+    <div class="story-eyebrow">資料發現</div>
+    <h1>政府 API 裡，藏着怎樣的澳門？</h1>
+    <p class="lede">按分類尋找，或讓網站隨機帶你認識一個數字。標有「資料快照」的卡片使用最近一次收集的資料，並顯示其資料期間。</p>
+  </section>
+  <div class="sec-head"><h2>隨機探索</h2><button class="chip" id="shuffle" type="button" style="margin-left:auto">換一批 ↻</button></div>
+  <div class="chips" id="filters"></div>
+  <div class="api-grid" id="gallery"></div>
+  <section style="padding-bottom:20px">
+    <div class="sec-head"><h2>全部 API 數據集</h2><span class="muted" id="count"></span></div>
+    <div class="search"><input type="search" id="q" placeholder="搜尋 API 數據內容或部門，例如「旅客」「空氣」「巴士」">
+      <select id="theme" aria-label="按分類篩選 API 數據"><option value="">所有分類</option></select></div>
+    <div class="list" id="list"></div>
+    <p style="text-align:center;margin:24px 0" id="more"><button class="btn ghost" id="more-btn" type="button">載入更多</button></p>
+  </section>
+</main>
+<footer class="foot"><div class="wrap">資料來源：<a href="https://data.gov.mo" target="_blank" rel="noopener">data.gov.mo</a>。本站為非官方整理。</div></footer>
+<script type="module">
+import { initChrome, catalog, seriesIndex, THEME_ICON, esc, datasetUrl } from "./assets/app.js?v=4";
+import { setupApiGallery } from "./assets/api-gallery.js?v=5";
+initChrome("apis");
+const c = await catalog();
+const apiData = c.datasets.filter(d => d.apis?.length || d.externalUrls?.length);
+const index = await seriesIndex();
+setupApiGallery({ box: document.getElementById("gallery"), filters: document.getElementById("filters"),
+  shuffle: document.getElementById("shuffle"), datasets: apiData, seriesIndex: index, count: 6 });
+let shown = 0, q = "", theme = "";
+const PAGE = 30;
+const counts = [...new Set(apiData.map(d => d.theme))].map(name => ({name, n: apiData.filter(d => d.theme === name).length}))
+  .sort((a,b) => b.n - a.n);
+document.getElementById("theme").innerHTML = '<option value="">所有分類</option>' +
+  counts.map(x => `<option value="${esc(x.name)}">${esc(x.name)}（${x.n}）</option>`).join("");
+function render(reset = true) {
+  const match = apiData.filter(d => (!theme || d.theme === theme) &&
+    (!q || (d.name + " " + d.desc + " " + d.dept + " " + d.theme).toLowerCase().includes(q)));
+  if (reset) { shown = 0; document.getElementById("list").innerHTML = ""; }
+  document.getElementById("count").textContent = `${match.length} 個數據集 · ${match.reduce((n,d)=>n+d.apis.length,0)} 個平台 API · ${match.reduce((n,d)=>n+(d.externalUrls?.length || 0),0)} 個資料網址`;
+  const chunk = match.slice(shown, shown + PAGE);
+  document.getElementById("list").insertAdjacentHTML("beforeend", chunk.map(d =>
+    `<a class="row" href="${datasetUrl(d.id)}"><div class="t">${esc(d.name)}</div>
+      ${d.desc ? `<div class="d">${esc(d.desc)}</div>` : ""}<div class="m">
+      <span class="tag">${THEME_ICON[d.theme] || "📊"} ${esc(d.theme)}</span>
+      <span class="tag">${esc(d.dept)}</span>
+      ${d.hasSeries ? '<span class="tag hi">可看走勢</span>' : d.hasPreview ? '<span class="tag hi">可看資料內容</span>' : ""}
+      </div></a>`).join(""));
+  shown += chunk.length;
+  document.getElementById("more").style.display = shown < match.length ? "" : "none";
+}
+let debounce;
+document.getElementById("q").addEventListener("input", e => { clearTimeout(debounce); debounce = setTimeout(() => { q = e.target.value.trim().toLowerCase(); render(); }, 130); });
+document.getElementById("theme").addEventListener("change", e => { theme = e.target.value; render(); });
+document.getElementById("more-btn").addEventListener("click", () => render(false));
+render();
+</script>
+</body></html>
