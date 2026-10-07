@@ -14,9 +14,11 @@ export const LIVE_METRICS = {
   },
 };
 
-export function pickLivePair(previous = null, random = Math.random) {
-  const pairs = Object.keys(LIVE_METRICS.weather).flatMap(weather =>
-    Object.keys(LIVE_METRICS.air).map(air => ({ weather, air })));
-  const options = pairs.filter(pair => pair.weather !== previous?.weather || pair.air !== previous?.air);
-  return options[Math.min(options.length - 1, Math.floor(random() * options.length))];
+export function pickLiveObservation(previous = null, random = Math.random) {
+  const kinds = Object.keys(LIVE_METRICS);
+  const kind = kinds.includes(previous?.kind)
+    ? kinds.find(option => option !== previous.kind)
+    : kinds[Math.min(kinds.length - 1, Math.floor(random() * kinds.length))];
+  const metrics = Object.keys(LIVE_METRICS[kind]);
+  return { kind, metric: metrics[Math.min(metrics.length - 1, Math.floor(random() * metrics.length))] };
 }

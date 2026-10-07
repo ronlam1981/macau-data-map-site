@@ -18,6 +18,7 @@
 .story-card:hover{transform:translateY(-4px);box-shadow:0 12px 28px rgba(22,58,58,.09)}
 .observation{transition:transform .24s ease,box-shadow .24s ease}
 .signal-card{display:flex;flex-direction:column}
+#live-observation[data-kind="weather"] .observation-row i{background:#cb795b}
 .signal-card .observation-value{margin-bottom:10px}
 .signal-change{font-size:13px;color:var(--series-1);margin:0}
 .signal-spark{margin-top:auto;padding-top:20px;color:#648e89}

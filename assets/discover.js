@@ -2,9 +2,10 @@ import { initChrome, esc, datasetUrl, officialUrl } from './app.js?v=4';
 import { lineChart, displaySeries } from './chart.js?v=5';
 import { EDITORIAL, topicFor, validPoints, comparison, partOfWhole, observationAge } from './story-data.js?v=2';
 import { SHARE_PARENTS, SHARE_COMPLEMENTS } from './story-comparisons.js';
-import { LIVE_METRICS, pickLivePair } from './live-observations.js';
-import { CITY_SIGNALS, pickCitySignals } from './city-signals.js';
+import { LIVE_METRICS, pickLiveObservation } from './live-observations.js?v=2';
+import { CITY_SIGNALS, pickCitySignal } from './city-signals.js?v=2';
 import { QUIZ_DEFINITIONS, pickQuiz, buildQuiz } from './quiz-data.js';
+import { storyShareText } from './share-story.js';
 
 initChrome('home');
 const $ = id => document.getElementById(id);
@@ -200,7 +201,10 @@ async function openStory(id) {
     $('story-detail').innerHTML = `<p class="eyebrow">${esc(topicFor(s))} / 數據故事</p><h2 id="dialog-title">${esc(heading(s))}</h2><p class="detail-value">${num(latest[1])}<small>${esc(data.unit || '')}</small></p><p>${esc(latest[0])} · ${esc(deltaText(data))}</p><p class="detail-explanation">${esc(explanation(s))}${raw.remarks ? `<br>來源備註：${esc(raw.remarks)}` : ''}</p>${shareDetail(context)}<div class="detail-chart chart-box" id="detail-chart"></div><p class="muted">${esc(s.title)} · 單位：${esc(data.unit || '來源未標示')}。折線縱軸按資料範圍縮放。</p><details class="table-view"><summary>查看每一期實際數值（${data.points.length} 期）</summary><div class="scroll"><table class="data"><thead><tr><th>期間</th><th>${esc(data.unit || '數值')}</th></tr></thead><tbody>${[...data.points].reverse().map(([p, v]) => `<tr><td>${esc(p)}</td><td>${num(v, 6)}</td></tr>`).join('')}</tbody></table></div></details><div class="detail-source"><p>提供：${esc(s.dept)}<br>網站資料快照：${esc(snapshotAt)}<br>比較方法：比對同一指標的去年相同期間；百分率使用百分點。沒有可對應資料時不計算同比；統計口徑變動請參閱來源備註。</p><a href="${officialUrl(s.datasetId)}" target="_blank" rel="noopener">官方原始資料 ↗</a> · <a href="${datasetUrl(s.datasetId)}">完整數據集內容 →</a>${context ? ` · <a href="${datasetUrl(context.totalSeries.datasetId)}">${esc(context.totalSeries.title)}總數 →</a>` : ''}</div><div class="detail-actions"><button class="btn" type="button" id="share-story">複製故事連結</button><span id="share-status" role="status"></span></div>`;
     lineChart($('detail-chart'), { ...data, title: s.title }, { height: 360 });
     $('share-story').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(location.href); $('share-status').textContent = '連結已複製'; }
+      try {
+        await navigator.clipboard.writeText(storyShareText(heading(s), s.id, location.href));
+        $('share-status').textContent = '故事標題、網站名稱、製作人及連結已複製';
+      }
       catch { $('share-status').textContent = '請複製瀏覽器網址分享這個故事。'; }
     });
   } catch { $('story-detail').innerHTML = `<h2 id="dialog-title">${esc(heading(s))}</h2><p>記錄暫時未能載入，請稍後重試。</p><a href="${datasetUrl(s.datasetId)}">查看資料來源</a>`; }
@@ -310,10 +314,11 @@ async function getLive(kind, metric) {
   return { data: checkedObservations(await readJSON(`data/live/${kind}.json`), metric), snapshot: true };
 }
 async function renderLive(kind, metric) {
-  const box = $('live-' + kind), source = LIVE_METRICS[kind][metric];
+  const box = $('live-observation'), source = LIVE_METRICS[kind][metric];
   box.setAttribute('aria-busy', 'true');
+  box.dataset.kind = kind;
   box.dataset.metric = metric;
-  box.innerHTML = `<p class="eyebrow">${esc(source.label)}</p><h3>${esc(source.title)}</h3><p role="status">正在讀取氣象局觀測…</p>`;
+  box.innerHTML = `<p class="eyebrow">現場觀測 · ${esc(source.label)}</p><h3>${esc(source.title)}</h3><p role="status">正在讀取氣象局觀測…</p>`;
   try {
     const { data, snapshot } = await getLive(kind, metric), age = observationAge(data.sourceAt);
     const fresh = !snapshot && age !== null && age >= -5 && age <= 120;
@@ -321,12 +326,12 @@ async function renderLive(kind, metric) {
     const records = [...data.records].sort((a, b) => b.value - a.value), highest = records[0];
     const minimum = Math.min(...records.map(r => r.value), 0);
     const maximum = Math.max(...records.map(r => r.value), 1);
-    box.innerHTML = `<div class="card-top"><span class="eyebrow">${esc(source.label)}</span><span class="live-status ${fresh ? 'is-fresh' : ''}">${esc(status)}</span></div><h3>${esc(source.title)}</h3><p class="observation-value">${num(highest.value, 1)}<small>${esc(source.unit)}</small><span>${esc(highest.name)} · 本批最高</span></p><div class="observation-bars">${records.slice(0, 6).map(r => `<div class="observation-row"><span>${esc(r.name)}</span><div><i style="width:${(r.value - minimum) / (maximum - minimum) * 100}%"></i></div><strong>${num(r.value, 1)}</strong></div>`).join('')}</div>${records.length > 6 ? `<p class="observation-more">先顯示數值最高的 6 站；完整 ${records.length} 站可在下方展開。</p>` : ''}<p class="observation-time">來源發布：${esc(data.sourceAt)}（澳門時間）<br>${records.length} 個有有效數值的測站 · ${snapshot ? '顯示最近儲存的觀測' : '頁面每 5 分鐘重新讀取'}</p><p class="observation-note">${esc(source.note)}</p><details class="observation-source"><summary>來源與各站觀測時間</summary><ul>${records.map(r => `<li>${esc(r.name)}：${num(r.value, 1)} ${esc(source.unit)} · ${esc(r.time || '來源未標示')}</li>`).join('')}</ul><a href="${liveSources[kind]}" target="_blank" rel="noopener">氣象局原始觀測 ↗</a></details>`;
+    box.innerHTML = `<div class="card-top"><span class="eyebrow">現場觀測 · ${esc(source.label)}</span><span class="live-status ${fresh ? 'is-fresh' : ''}">${esc(status)}</span></div><h3>${esc(source.title)}</h3><p class="observation-value">${num(highest.value, 1)}<small>${esc(source.unit)}</small><span>${esc(highest.name)} · 本批最高</span></p><div class="observation-bars">${records.slice(0, 6).map(r => `<div class="observation-row"><span>${esc(r.name)}</span><div><i style="width:${(r.value - minimum) / (maximum - minimum) * 100}%"></i></div><strong>${num(r.value, 1)}</strong></div>`).join('')}</div>${records.length > 6 ? `<p class="observation-more">先顯示數值最高的 6 站；完整 ${records.length} 站可在下方展開。</p>` : ''}<p class="observation-time">來源發布：${esc(data.sourceAt)}（澳門時間）<br>${records.length} 個有有效數值的測站 · ${snapshot ? '顯示最近儲存的觀測' : '頁面每 5 分鐘重新讀取'}</p><p class="observation-note">${esc(source.note)}</p><details class="observation-source"><summary>來源與各站觀測時間</summary><ul>${records.map(r => `<li>${esc(r.name)}：${num(r.value, 1)} ${esc(source.unit)} · ${esc(r.time || '來源未標示')}</li>`).join('')}</ul><a href="${liveSources[kind]}" target="_blank" rel="noopener">氣象局原始觀測 ↗</a></details>`;
   } catch { box.innerHTML = `<p class="eyebrow">${esc(source.label)}</p><h3>${esc(source.title)}</h3><p>暫時未能取得有效觀測。可換一組數據或前往來源網站。</p><a href="${liveSources[kind]}" target="_blank" rel="noopener">查看氣象局來源 ↗</a>`; }
   finally { box.setAttribute('aria-busy', 'false'); }
 }
-async function renderCitySignal(slot, signal) {
-  const box = $('city-signal-' + slot);
+async function renderCitySignal(signal) {
+  const box = $('city-signal');
   box.setAttribute('aria-busy', 'true');
   box.innerHTML = `<p class="eyebrow">${esc(signal.topic)} · 最近一期統計</p><h3>${esc(signal.question)}</h3><p role="status">正在讀取統計記錄…</p>`;
   try {
@@ -338,27 +343,30 @@ async function renderCitySignal(slot, signal) {
   } finally { box.setAttribute('aria-busy', 'false'); }
 }
 let refreshing = false;
-let livePair = null;
-let citySignals = [];
-try { livePair = JSON.parse(sessionStorage.getItem('macau-last-live-pair')); } catch {}
+let liveObservation = null;
+let citySignal = null;
 try {
-  const ids = JSON.parse(sessionStorage.getItem('macau-last-city-signals'));
-  if (Array.isArray(ids)) citySignals = ids.map(id => CITY_SIGNALS.find(item => item.id === id)).filter(Boolean);
+  const savedLive = JSON.parse(sessionStorage.getItem('macau-last-live-observation'));
+  if (LIVE_METRICS[savedLive?.kind]?.[savedLive?.metric]) liveObservation = savedLive;
+} catch {}
+try {
+  const id = sessionStorage.getItem('macau-last-city-signal');
+  citySignal = CITY_SIGNALS.find(item => item.id === id) || null;
 } catch {}
 async function refreshLive(change = false) {
   if (refreshing) return;
   refreshing = true; $('refresh-live').disabled = true; $('refresh-live').textContent = '正在讀取…';
-  if (change || !livePair) {
-    livePair = pickLivePair(livePair);
-    try { sessionStorage.setItem('macau-last-live-pair', JSON.stringify(livePair)); } catch {}
+  if (change || !liveObservation) {
+    liveObservation = pickLiveObservation(liveObservation);
+    try { sessionStorage.setItem('macau-last-live-observation', JSON.stringify(liveObservation)); } catch {}
   }
-  if (change || citySignals.length !== 2) {
-    citySignals = pickCitySignals(citySignals);
-    try { sessionStorage.setItem('macau-last-city-signals', JSON.stringify(citySignals.map(item => item.id))); } catch {}
+  if (change || !citySignal) {
+    citySignal = pickCitySignal(citySignal);
+    try { sessionStorage.setItem('macau-last-city-signal', citySignal.id); } catch {}
   }
   await Promise.allSettled([
-    ...['weather', 'air'].map(kind => renderLive(kind, livePair[kind])),
-    ...citySignals.map((signal, slot) => renderCitySignal(slot, signal)),
+    renderLive(liveObservation.kind, liveObservation.metric),
+    renderCitySignal(citySignal),
   ]);
   refreshing = false; $('refresh-live').disabled = false; $('refresh-live').textContent = '換一組數據 ↻';
 }

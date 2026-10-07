@@ -1,5 +1,5 @@
 // Published statistical series for the mixed-cadence "now" section.
-// Keep one series per topic so the two rotating cards always cover different subjects.
+// Keep one series per topic so each rotation can reveal another subject.
 export const CITY_SIGNALS = [
   { topic: '旅遊', question: '最近一期，有幾多人次來澳門？', id: '3546225a-2a34-4645-b01e-6752aed03993_4428' },
   { topic: '交通', question: '最近一期，交通意外有幾多宗？', id: 'c48b7dee-ac6f-4caa-934f-7e9071671dfc_4369' },
@@ -10,12 +10,7 @@ export const CITY_SIGNALS = [
   { topic: '治安', question: '最近一期，錄得幾多宗罪案？', id: 'f2075552-383e-4eba-aa22-a7f680caa86b_4946' },
 ];
 
-export function pickCitySignals(previous = [], random = Math.random) {
-  const previousIds = new Set(previous.map(item => item.id));
-  const available = CITY_SIGNALS.filter(item => !previousIds.has(item.id));
-  const pool = available.length >= 2 ? available : CITY_SIGNALS;
-  const first = Math.min(pool.length - 1, Math.floor(random() * pool.length));
-  const secondPool = pool.filter((_, index) => index !== first);
-  const second = Math.min(secondPool.length - 1, Math.floor(random() * secondPool.length));
-  return [pool[first], secondPool[second]];
+export function pickCitySignal(previous = null, random = Math.random) {
+  const options = CITY_SIGNALS.filter(item => item.id !== previous?.id);
+  return options[Math.min(options.length - 1, Math.floor(random() * options.length))];
 }
