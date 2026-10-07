@@ -17,6 +17,15 @@
 .story-card{transition:border-color .2s,transform .24s ease,box-shadow .24s ease}
 .story-card:hover{transform:translateY(-4px);box-shadow:0 12px 28px rgba(22,58,58,.09)}
 .observation{transition:transform .24s ease,box-shadow .24s ease}
+.signal-card{display:flex;flex-direction:column}
+.signal-card .observation-value{margin-bottom:10px}
+.signal-change{font-size:13px;color:var(--series-1);margin:0}
+.signal-spark{margin-top:auto;padding-top:20px;color:#648e89}
+.signal-spark svg{display:block;width:100%;height:76px}
+.signal-card .observation-note{margin-top:14px}
+.signal-links{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line);padding-top:13px;margin-top:16px}
+.signal-links button,.signal-links a{border:0;background:none;padding:0;font:inherit;font-size:11px;color:var(--series-1);cursor:pointer;text-decoration:none}
+.signal-links button:hover,.signal-links a:hover{text-decoration:underline}
 .observation:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(22,58,58,.07)}
 #story-dialog[open]{animation:dialog-reveal .25s cubic-bezier(.2,.8,.2,1)}
 @keyframes dialog-reveal{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}

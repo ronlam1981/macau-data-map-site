@@ -3,6 +3,7 @@ import { lineChart, displaySeries } from './chart.js?v=5';
 import { EDITORIAL, topicFor, validPoints, comparison, partOfWhole, observationAge } from './story-data.js?v=2';
 import { SHARE_PARENTS, SHARE_COMPLEMENTS } from './story-comparisons.js';
 import { LIVE_METRICS, pickLivePair } from './live-observations.js';
+import { CITY_SIGNALS, pickCitySignals } from './city-signals.js';
 import { QUIZ_DEFINITIONS, pickQuiz, buildQuiz } from './quiz-data.js';
 
 initChrome('home');
@@ -324,9 +325,26 @@ async function renderLive(kind, metric) {
   } catch { box.innerHTML = `<p class="eyebrow">${esc(source.label)}</p><h3>${esc(source.title)}</h3><p>暫時未能取得有效觀測。可換一組數據或前往來源網站。</p><a href="${liveSources[kind]}" target="_blank" rel="noopener">查看氣象局來源 ↗</a>`; }
   finally { box.setAttribute('aria-busy', 'false'); }
 }
+async function renderCitySignal(slot, signal) {
+  const box = $('city-signal-' + slot);
+  box.setAttribute('aria-busy', 'true');
+  box.innerHTML = `<p class="eyebrow">${esc(signal.topic)} · 最近一期統計</p><h3>${esc(signal.question)}</h3><p role="status">正在讀取統計記錄…</p>`;
+  try {
+    const raw = await readSeries(signal.id);
+    const data = displaySeries(raw), latest = data.points.at(-1);
+    box.innerHTML = `<div class="card-top"><span class="eyebrow">${esc(signal.topic)} · 最近一期統計</span><span class="live-status">網站快照</span></div><h3>${esc(signal.question)}</h3><p class="observation-value">${num(latest[1])}<small>${esc(signal.displayUnit || data.unit || '')}</small><span>${esc(latest[0])} · ${esc(raw.title)}</span></p><p class="signal-change">${esc(deltaText(data))}</p><div class="signal-spark">${spark(data.points)}</div><p class="observation-note">此為${esc(raw.periodType || '定期')}統計，並非即時觀測；數值所屬期間見上方。</p><div class="signal-links"><button type="button" data-open="${esc(signal.id)}">看走勢與完整記錄 ↗</button><a href="${datasetUrl(raw.datasetId)}">查看資料來源 →</a></div>`;
+  } catch {
+    box.innerHTML = `<p class="eyebrow">${esc(signal.topic)} · 最近一期統計</p><h3>${esc(signal.question)}</h3><p>暫時未能讀取這組統計記錄。</p><button class="text-button" type="button" data-open="${esc(signal.id)}">查看數據故事 →</button>`;
+  } finally { box.setAttribute('aria-busy', 'false'); }
+}
 let refreshing = false;
 let livePair = null;
+let citySignals = [];
 try { livePair = JSON.parse(sessionStorage.getItem('macau-last-live-pair')); } catch {}
+try {
+  const ids = JSON.parse(sessionStorage.getItem('macau-last-city-signals'));
+  if (Array.isArray(ids)) citySignals = ids.map(id => CITY_SIGNALS.find(item => item.id === id)).filter(Boolean);
+} catch {}
 async function refreshLive(change = false) {
   if (refreshing) return;
   refreshing = true; $('refresh-live').disabled = true; $('refresh-live').textContent = '正在讀取…';
@@ -334,7 +352,14 @@ async function refreshLive(change = false) {
     livePair = pickLivePair(livePair);
     try { sessionStorage.setItem('macau-last-live-pair', JSON.stringify(livePair)); } catch {}
   }
-  await Promise.allSettled(['weather', 'air'].map(kind => renderLive(kind, livePair[kind])));
+  if (change || citySignals.length !== 2) {
+    citySignals = pickCitySignals(citySignals);
+    try { sessionStorage.setItem('macau-last-city-signals', JSON.stringify(citySignals.map(item => item.id))); } catch {}
+  }
+  await Promise.allSettled([
+    ...['weather', 'air'].map(kind => renderLive(kind, livePair[kind])),
+    ...citySignals.map((signal, slot) => renderCitySignal(slot, signal)),
+  ]);
   refreshing = false; $('refresh-live').disabled = false; $('refresh-live').textContent = '換一組數據 ↻';
 }
 $('refresh-live').addEventListener('click', () => refreshLive(true));
