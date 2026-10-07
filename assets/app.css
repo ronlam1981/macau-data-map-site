@@ -47,6 +47,8 @@ a{color:inherit}
 .top .wrap{display:flex; align-items:center; gap:28px; height:62px}
 .brand{font-weight:700; font-size:17px; letter-spacing:.02em; text-decoration:none; white-space:nowrap}
 .brand span{color:var(--series-1)}
+.brand .brand-credit{display:block;margin-top:2px;color:var(--text-muted);font-size:10px;font-weight:400;line-height:1.4;letter-spacing:.02em}
+@media(max-width:350px){.top .wrap{height:auto;min-height:92px;flex-wrap:wrap;align-content:center;gap:4px 0}.top .brand{width:100%}.top .nav{width:100%;margin-left:0;justify-content:space-between;gap:8px}.top .nav a{white-space:nowrap}}
 .nav{display:flex; gap:22px; margin-left:auto; font-size:15px}
 .nav a{text-decoration:none; color:var(--text-secondary); padding:4px 0; border-bottom:2px solid transparent}
 .nav a:hover{color:var(--text-primary)}
@@ -169,6 +171,7 @@ details.table-view summary{cursor:pointer; font-size:14px; color:var(--series-1)
 
 .foot{border-top:1px solid var(--line); margin-top:40px; padding:30px 0 50px; color:var(--text-muted); font-size:14px}
 .foot a{color:var(--text-secondary)}
+.foot .site-credit{font-size:12px;color:var(--text-secondary);margin:12px 0 0;letter-spacing:.02em}
 .empty{text-align:center; color:var(--text-muted); padding:50px 0}
 
 /* 內容優先的數據故事與提供部門分組 */

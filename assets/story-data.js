@@ -59,6 +59,28 @@ export function visitorShare(total, overnight) {
     share: (latest[1] - byPeriod.get(latest[0])) / latest[1] * 100 };
 }
 
+// Compare a published component with a compatible total from the same period.
+export function partOfWhole(totalPoints, partPoints) {
+  const totals = new Map(validPoints(totalPoints));
+  const matching = validPoints(partPoints).filter(([period, part]) =>
+    totals.get(period) > 0 && part >= 0 && part <= totals.get(period));
+  const latest = matching.at(-1);
+  if (!latest) return null;
+  const [period, part] = latest, total = totals.get(period);
+  const year = period.match(/^\d{4}/);
+  const previousPeriod = year ? period.replace(/^\d{4}/, String(Number(year[0]) - 1)) : null;
+  const previous = matching.find(([p]) => p === previousPeriod);
+  const previousShare = previous ? previous[1] / totals.get(previousPeriod) * 100 : null;
+  const share = part / total * 100;
+  return { period, part, total, remainder: total - part, share, previousPeriod: previous ? previousPeriod : null,
+    previousShare, changePoints: previous ? share - previousShare : null };
+}
+
+export function visitorDayShare(totalPoints, dayPoints) {
+  const result = partOfWhole(totalPoints, dayPoints);
+  return result ? { ...result, day: result.part, overnight: result.remainder } : null;
+}
+
 export function observationAge(sourceAt, now = Date.now()) {
   if (typeof sourceAt !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/.test(sourceAt)) return null;
   const time = Date.parse(sourceAt.replace(' ', 'T') + '+08:00');

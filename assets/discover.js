@@ -1,6 +1,7 @@
 import { initChrome, esc, datasetUrl, officialUrl } from './app.js?v=4';
 import { lineChart, displaySeries } from './chart.js?v=5';
-import { EDITORIAL, topicFor, validPoints, comparison, observationAge } from './story-data.js';
+import { EDITORIAL, topicFor, validPoints, comparison, partOfWhole, observationAge } from './story-data.js?v=2';
+import { SHARE_PARENTS, SHARE_COMPLEMENTS } from './story-comparisons.js';
 import { LIVE_METRICS, pickLivePair } from './live-observations.js';
 import { QUIZ_DEFINITIONS, pickQuiz, buildQuiz } from './quiz-data.js';
 
@@ -26,14 +27,105 @@ function readSeries(id) {
 }
 let saved = new Set();
 try { const value = JSON.parse(localStorage.getItem('macau-saved-stories') || '[]'); if (Array.isArray(value)) saved = new Set(value.filter(x => typeof x === 'string')); } catch {}
-let registry = [], selection = [], topic = '全部', query = '', savedOnly = false, limit = 9, renderToken = 0;
+let registry = [], selection = [], topic = '全部', query = '', savedOnly = false, limit = 9, renderedCount = 0, renderToken = 0;
 let snapshotAt = '網站已儲存資料';
+let soundOn = true;
+try { soundOn = localStorage.getItem('macau-sound-on') !== 'false'; } catch {}
+let audioContext;
+function playTone(frequency, delay = 0, duration = 0.065, volume = 0.012) {
+  if (!soundOn) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  try {
+    audioContext ||= new AudioContextClass();
+    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+    const start = audioContext.currentTime + delay;
+    const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
+    oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(gain); gain.connect(audioContext.destination);
+    oscillator.start(start); oscillator.stop(start + duration + 0.01);
+  } catch { /* Audio feedback is optional when a browser blocks Web Audio. */ }
+}
+function updateSoundToggle() {
+  const button = $('sound-toggle');
+  button.textContent = soundOn ? '♪ 音效開啟' : '♪ 音效關閉';
+  button.setAttribute('aria-pressed', String(soundOn));
+  button.setAttribute('aria-label', soundOn ? '關閉互動音效' : '開啟互動音效');
+}
+updateSoundToggle();
+document.addEventListener('click', event => {
+  if (event.target.closest('#sound-toggle')) return;
+  if (event.target.closest('button:not(:disabled), .round-link')) playTone(440);
+});
+$('sound-toggle').addEventListener('click', () => {
+  soundOn = !soundOn;
+  try { localStorage.setItem('macau-sound-on', String(soundOn)); } catch {}
+  updateSoundToggle();
+  if (soundOn) playTone(660, 0, 0.09);
+});
 function heading(s) { return EDITORIAL[s.title]?.[0] || `${s.title}，最近有甚麼變化？`; }
 function explanation(s) { return EDITORIAL[s.title]?.[2] || `這組記錄展示「${s.title}」隨時間的變化；指標定義以提供部門的資料為準。`; }
 function deltaText(data) {
   const change = comparison(data.points, data.unit);
   if (!change) return '未有可對應的去年同期數據';
   return `較 ${change.previous[0]} ${change.direction}${change.delta ? ` ${num(Math.abs(change.value))}${change.unit === '%' ? '' : ' '}${change.unit || ''}` : ''}`;
+}
+async function shareContext(s, points) {
+  const parentTitle = SHARE_PARENTS[s.title];
+  if (!parentTitle) return null;
+  const totalSeries = registry.find(item => item.title === parentTitle && item.unit === s.unit && item.periodType === s.periodType);
+  if (!totalSeries) return null;
+  try {
+    const total = await readSeries(totalSeries.id);
+    const result = partOfWhole(total.points, points);
+    if (result?.period !== points.at(-1)?.[0]) return null;
+    let remainderLabel = '其餘（總數減本項）';
+    const complement = registry.find(item => item.title === SHARE_COMPLEMENTS[s.title]
+      && item.unit === s.unit && item.periodType === s.periodType);
+    if (complement) {
+      try {
+        const sibling = await readSeries(complement.id);
+        const published = sibling.points.find(([period]) => period === result.period)?.[1];
+        if (published != null && Math.abs(published - result.remainder) < Math.max(0.01, result.total * 0.000001))
+          remainderLabel = complement.title;
+      } catch { /* Keep the valid total comparison when an optional sibling is unavailable. */ }
+    }
+    return { ...result, totalSeries, series: s, remainderLabel };
+  } catch { return null; }
+}
+function shareChange(context) {
+  if (context.previousShare == null) return '';
+  const change = context.changePoints;
+  const previousLabel = /年\d+月$/.test(context.period) ? '去年同月' : '去年同期';
+  if (change === 0) return `${previousLabel} ${num(context.previousShare, 1)}%，佔比持平`;
+  const roundedDifference = Math.round(context.share * 10) / 10 - Math.round(context.previousShare * 10) / 10;
+  if (!roundedDifference) return `${previousLabel} ${num(context.previousShare, 1)}%，佔比大致持平`;
+  return `${previousLabel} ${num(context.previousShare, 1)}%，佔比${roundedDifference > 0 ? '高' : '低'} ${num(Math.abs(roundedDifference), 1)} 個百分點`;
+}
+function shareCard(context) {
+  if (!context) return '';
+  const special = context.series.title === '不過夜入境旅客';
+  const restLabel = special ? '留宿' : context.remainderLabel;
+  return `<div class="visitor-share"><div class="visitor-share-heading"><span>${special ? '佔同月全部入境旅客' : `佔同期${esc(context.totalSeries.title)}`}</span><strong>${num(context.share, 1)}%</strong></div><div class="visitor-share-track" role="img" aria-label="${esc(context.series.title)}佔 ${num(context.share, 1)}%，${esc(restLabel)}佔 ${num(100 - context.share, 1)}%"><i style="width:${context.share}%"></i></div><p>${esc(shareChange(context))}</p></div>`;
+}
+function shareDetail(context) {
+  if (!context) return '';
+  const special = context.series.title === '不過夜入境旅客';
+  const partLabel = special ? '即日來回' : context.series.title;
+  const restLabel = special ? '留宿' : context.remainderLabel;
+  const title = special
+    ? `${context.period}，每 100 人次約有 ${num(context.share, 0)} 人次即日來回`
+    : `${context.period}，${context.series.title}佔整體 ${num(context.share, 1)}%`;
+  const unit = context.series.unit || '';
+  const note = special
+    ? '同月總數扣除不過夜人次得出留宿人次。這些是人次，並非不重複的人數。'
+    : context.remainderLabel === '其餘（總數減本項）'
+      ? '兩項統計使用相同期間及單位；其餘數值由總數減去本項得出，不一定代表單一類別。'
+      : '同一期間的兩類數值相加等於總數。';
+  return `<section class="visitor-breakdown" aria-label="與整體比較"><p class="eyebrow">把這個數字放回整體之中</p><h3>${esc(title)}</h3><div class="visitor-breakdown-values"><div><span>${esc(partLabel)}</span><strong>${num(context.part)}</strong><small>${esc(unit)} · ${num(context.share, 1)}%</small></div><div><span>${esc(restLabel)}</span><strong>${num(context.remainder)}</strong><small>${esc(unit)} · ${num(100 - context.share, 1)}%</small></div></div><div class="visitor-share-track" role="img" aria-label="${esc(partLabel)}佔 ${num(context.share, 1)}%，${esc(restLabel)}佔 ${num(100 - context.share, 1)}%"><i style="width:${context.share}%"></i></div><p class="visitor-breakdown-note">${esc(context.totalSeries.title)}合計 ${num(context.total)} ${esc(unit)}${context.previousShare == null ? '' : `；${esc(shareChange(context))}`}。${esc(note)}</p></section>`;
 }
 function spark(points) {
   const recent = points.slice(-36), values = recent.map(p => p[1]);
@@ -55,30 +147,43 @@ function filterSelection() {
   selection = registry.filter(s => (topic === '全部' || topicFor(s) === topic)
     && (!savedOnly || saved.has(s.id)) && (!query || `${heading(s)} ${s.title} ${s.theme} ${topicFor(s)}`.toLowerCase().includes(query)));
 }
-async function renderStories() {
+async function renderStories(append = false) {
   const token = ++renderToken;
   filterSelection();
-  const visible = selection.slice(0, limit);
-  $('story-count').textContent = `${selection.length} 個可探索的統計指標 · 顯示 ${visible.length} 個`;
-  $('more-stories').hidden = selection.length <= limit;
+  const start = append ? renderedCount : 0;
+  const visible = selection.slice(start, limit);
+  const moreButton = $('more-stories');
+  moreButton.disabled = true;
+  if (append) moreButton.textContent = '正在發現故事…';
+  else { renderedCount = 0; $('stories').replaceChildren(); }
   $('stories').setAttribute('aria-busy', 'true');
-  $('stories').innerHTML = visible.length ? visible.map((s, i) => `<article class="story-card tone-${i % 4}" id="story-${esc(s.id)}"><p class="eyebrow">${esc(topicFor(s))}</p><h3>${esc(heading(s))}</h3><p class="muted">讀取實際記錄中…</p></article>`).join('') : '<div class="empty">暫時沒有符合的故事。試試其他關鍵字或主題；收藏後可在這裡再次找到。</div>';
-  await Promise.all(visible.map(async (s, i) => {
+  const cards = await Promise.all(visible.map(async (s, i) => {
     try {
       const raw = await readSeries(s.id), data = displaySeries(raw), last = data.points.at(-1);
-      if (token !== renderToken) return;
-      const card = $('story-' + s.id);
-      card.innerHTML = `<div class="card-top"><span class="eyebrow">${esc(topicFor(s))}</span><button type="button" class="save-story" data-save="${esc(s.id)}" aria-label="收藏故事">♡</button></div>
+      const context = await shareContext(s, raw.points);
+      return `<article class="story-card tone-${(start + i) % 4} is-entering" style="--enter-order:${i}" id="story-${esc(s.id)}"><div class="card-top"><span class="eyebrow">${esc(topicFor(s))}</span><button type="button" class="save-story" data-save="${esc(s.id)}" aria-label="收藏故事">♡</button></div>
         <h3><button class="story-open" type="button" data-open="${esc(s.id)}">${esc(heading(s))}</button></h3>
         <p class="story-number">${num(last[1])}<small>${esc(data.unit || '')}</small></p>
-        <p class="story-period">${esc(last[0])} · ${esc(s.title)}</p><p class="story-change">${esc(deltaText(data))}</p>
-        <div class="story-spark">${spark(data.points)}</div><div class="card-foot"><span>已儲存統計 · ${esc(s.periodType || '定期更新')}</span><button type="button" data-open="${esc(s.id)}" aria-label="展開：${esc(heading(s))}">看故事 ↗</button></div>`;
+        <p class="story-period">${esc(last[0])} · ${esc(s.title)}</p><p class="story-change">${esc(deltaText(data))}</p>${shareCard(context)}
+        <div class="story-spark">${spark(data.points)}</div><div class="card-foot"><span>已儲存統計 · ${esc(s.periodType || '定期更新')}</span><button type="button" data-open="${esc(s.id)}" aria-label="展開：${esc(heading(s))}">看故事 ↗</button></div></article>`;
     } catch {
-      if (token !== renderToken) return;
-      $('story-' + s.id).innerHTML = `<p class="eyebrow">${esc(topicFor(s))}</p><h3>${esc(heading(s))}</h3><p>這組實際記錄暫時未能讀取。</p><a href="${datasetUrl(s.datasetId)}">查看資料來源 →</a>`;
+      return `<article class="story-card tone-${(start + i) % 4} is-entering" style="--enter-order:${i}" id="story-${esc(s.id)}"><p class="eyebrow">${esc(topicFor(s))}</p><h3>${esc(heading(s))}</h3><p>這組實際記錄暫時未能讀取。</p><a href="${datasetUrl(s.datasetId)}">查看資料來源 →</a></article>`;
     }
   }));
-  if (token === renderToken) { $('stories').setAttribute('aria-busy', 'false'); updateSaved(); }
+  if (token !== renderToken) return;
+  if (cards.length) $('stories').insertAdjacentHTML('beforeend', cards.join(''));
+  else if (!append) $('stories').innerHTML = '<div class="empty">暫時沒有符合的故事。試試其他關鍵字或主題；收藏後可在這裡再次找到。</div>';
+  renderedCount = start + cards.length;
+  $('story-count').textContent = `${selection.length} 個可探索的統計指標 · 顯示 ${renderedCount} 個`;
+  moreButton.hidden = renderedCount >= selection.length;
+  moreButton.disabled = false;
+  moreButton.textContent = `再發現 ${Math.min(9, selection.length - renderedCount)} 個故事 ↓`;
+  $('stories').setAttribute('aria-busy', 'false');
+  updateSaved();
+  if (append && cards.length) {
+    $('story-' + visible[0].id).scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center' });
+    playTone(660, 0, 0.1); playTone(880, 0.11, 0.13);
+  }
 }
 let detailToken = 0;
 async function openStory(id) {
@@ -89,8 +194,9 @@ async function openStory(id) {
   const url = new URL(location.href); url.searchParams.set('story', id); history.replaceState(null, '', url);
   try {
     const raw = await readSeries(s.id), data = displaySeries(raw), latest = data.points.at(-1);
+    const context = await shareContext(s, raw.points);
     if (token !== detailToken || !dialog.open) return;
-    $('story-detail').innerHTML = `<p class="eyebrow">${esc(topicFor(s))} / 數據故事</p><h2 id="dialog-title">${esc(heading(s))}</h2><p class="detail-value">${num(latest[1])}<small>${esc(data.unit || '')}</small></p><p>${esc(latest[0])} · ${esc(deltaText(data))}</p><p class="detail-explanation">${esc(explanation(s))}${raw.remarks ? `<br>來源備註：${esc(raw.remarks)}` : ''}</p><div class="detail-chart chart-box" id="detail-chart"></div><p class="muted">${esc(s.title)} · 單位：${esc(data.unit || '來源未標示')}。折線縱軸按資料範圍縮放。</p><details class="table-view"><summary>查看每一期實際數值（${data.points.length} 期）</summary><div class="scroll"><table class="data"><thead><tr><th>期間</th><th>${esc(data.unit || '數值')}</th></tr></thead><tbody>${[...data.points].reverse().map(([p, v]) => `<tr><td>${esc(p)}</td><td>${num(v, 6)}</td></tr>`).join('')}</tbody></table></div></details><div class="detail-source"><p>提供：${esc(s.dept)}<br>網站資料快照：${esc(snapshotAt)}<br>比較方法：比對同一指標的去年相同期間；百分率使用百分點。沒有可對應資料時不計算同比；統計口徑變動請參閱來源備註。</p><a href="${officialUrl(s.datasetId)}" target="_blank" rel="noopener">官方原始資料 ↗</a> · <a href="${datasetUrl(s.datasetId)}">完整數據集內容 →</a></div><div class="detail-actions"><button class="btn" type="button" id="share-story">複製故事連結</button><span id="share-status" role="status"></span></div>`;
+    $('story-detail').innerHTML = `<p class="eyebrow">${esc(topicFor(s))} / 數據故事</p><h2 id="dialog-title">${esc(heading(s))}</h2><p class="detail-value">${num(latest[1])}<small>${esc(data.unit || '')}</small></p><p>${esc(latest[0])} · ${esc(deltaText(data))}</p><p class="detail-explanation">${esc(explanation(s))}${raw.remarks ? `<br>來源備註：${esc(raw.remarks)}` : ''}</p>${shareDetail(context)}<div class="detail-chart chart-box" id="detail-chart"></div><p class="muted">${esc(s.title)} · 單位：${esc(data.unit || '來源未標示')}。折線縱軸按資料範圍縮放。</p><details class="table-view"><summary>查看每一期實際數值（${data.points.length} 期）</summary><div class="scroll"><table class="data"><thead><tr><th>期間</th><th>${esc(data.unit || '數值')}</th></tr></thead><tbody>${[...data.points].reverse().map(([p, v]) => `<tr><td>${esc(p)}</td><td>${num(v, 6)}</td></tr>`).join('')}</tbody></table></div></details><div class="detail-source"><p>提供：${esc(s.dept)}<br>網站資料快照：${esc(snapshotAt)}<br>比較方法：比對同一指標的去年相同期間；百分率使用百分點。沒有可對應資料時不計算同比；統計口徑變動請參閱來源備註。</p><a href="${officialUrl(s.datasetId)}" target="_blank" rel="noopener">官方原始資料 ↗</a> · <a href="${datasetUrl(s.datasetId)}">完整數據集內容 →</a>${context ? ` · <a href="${datasetUrl(context.totalSeries.datasetId)}">${esc(context.totalSeries.title)}總數 →</a>` : ''}</div><div class="detail-actions"><button class="btn" type="button" id="share-story">複製故事連結</button><span id="share-status" role="status"></span></div>`;
     lineChart($('detail-chart'), { ...data, title: s.title }, { height: 360 });
     $('share-story').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(location.href); $('share-status').textContent = '連結已複製'; }
@@ -110,7 +216,7 @@ document.addEventListener('click', event => {
   }
 });
 $('saved-only').addEventListener('click', () => { savedOnly = !savedOnly; $('saved-only').setAttribute('aria-pressed', String(savedOnly)); limit = 9; renderStories(); });
-$('more-stories').addEventListener('click', () => { limit += 9; renderStories(); });
+$('more-stories').addEventListener('click', () => { limit += 9; renderStories(true); });
 let searchTimer;
 $('story-search').addEventListener('input', event => { clearTimeout(searchTimer); query = event.target.value.trim().toLowerCase(); searchTimer = setTimeout(() => { limit = 9; renderStories(); }, 180); });
 $('surprise').addEventListener('click', () => {
