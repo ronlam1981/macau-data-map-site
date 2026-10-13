@@ -7,7 +7,7 @@
 <link rel="icon" href="assets/brand/favicon.png" media="(prefers-color-scheme: light)">
 <link rel="icon" href="assets/brand/favicon-dark.png" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="assets/brand/favicon.png">
-<link rel="stylesheet" href="assets/app.css?v=10">
+<link rel="stylesheet" href="assets/app.css?v=11">
 </head>
 <body>
 
@@ -31,10 +31,10 @@
 
 <script type="module">
 import { initChrome, catalog, seriesIndex, series, THEME_ICON, esc, officialUrl } from "./assets/app.js?v=4";
-import { lineChart, fmtNum, displaySeries } from "./assets/chart.js?v=5";
 import { renderEmergency } from "./assets/emergency.js";
 import { renderDerived } from "./assets/derived-view.js?v=3";
 import { loadReleaseSchedule, loadSeriesStatus, relevantRelease, formatReleaseDate } from "./assets/release-info.js?v=1";
+import { mountExplorer } from "./assets/series-explorer.js?v=1";
 initChrome("");
 
 const id = new URLSearchParams(location.search).get("id");
@@ -93,28 +93,15 @@ if (!d) {
         <div class="chart-card" style="margin-bottom:16px">
           <div class="chart-head">
             <div class="chart-title">${esc(s.title)}</div>
-            <div class="insight" id="insight${i}"></div>
             <div class="chart-sub">${esc(s.periodType || "")}數據 · ${esc(s.minYear)}–${esc(s.maxYear)} · 單位：${esc(["百萬澳門元", "千澳門元"].includes(s.unit) ? "億澳門元" : s.unit || "—")}</div>
           </div>
-          <div class="chart-box" id="c${i}"></div>
-          <details class="table-view"><summary>查看每期數值</summary>
-            <div class="scroll"><table class="data" id="t${i}">
-              <thead><tr><th>期間</th><th>數值${s.unit ? "（" + esc(["百萬澳門元", "千澳門元"].includes(s.unit) ? "億澳門元" : s.unit) + "）" : ""}</th></tr></thead>
-              <tbody></tbody></table></div>
-          </details>
+          <div id="c${i}"></div>
         </div>`).join("")}
     </section>`;
     for (const [i, s] of mine.entries()) {
-      const sd = displaySeries(await series(s.id));
-      const first = sd.points[0], last = sd.points.at(-1);
-      const delta = last[1] - first[1];
-      const change = first[1] ? `${delta >= 0 ? "增加" : "減少"}${Math.abs(delta / first[1] * 100).toFixed(1)}%` : "";
-      document.getElementById("insight" + i).innerHTML = `<strong>${fmtNum(last[1], sd.unit === "億澳門元" ? 2 : null)}<small>${esc(sd.unit || "")}</small></strong>
-        <span>最新：${esc(last[0])}<br>較 ${esc(first[0])} ${change || "有所變化"}</span>`;
-      lineChart(document.getElementById("c" + i), sd, { height: 330 });
-      document.querySelector(`#t${i} tbody`).innerHTML =
-        [...sd.points].reverse().map(([p, v]) =>
-          `<tr><td>${esc(p)}</td><td>${fmtNum(v, sd.unit === "億澳門元" ? 2 : null)}</td></tr>`).join("");
+      const raw = await series(s.id);
+      const target = document.getElementById('c' + i);
+      mountExplorer(target, raw, { source: officialUrl(d.id) });
     }
   }
   const enriched = await renderDerived(d, Boolean(d.hasEmergency || mine.length));

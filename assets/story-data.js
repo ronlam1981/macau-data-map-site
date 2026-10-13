@@ -1,4 +1,4 @@
-import { parsePeriod } from './chart.js?v=5';
+import { parsePeriod } from './chart.js?v=6';
 
 export const EDITORIAL = {
   '入境旅客': ['澳門一個月迎來幾多旅客？', '人來人往', '看旅客人次的季節變化；人次不等於不重複的人數。'],
@@ -32,14 +32,13 @@ export function validPoints(points) {
     .slice().sort((a, b) => parsePeriod(a[0]).t - parsePeriod(b[0]).t);
 }
 
-export function comparison(points, unit) {
-  const last = points.at(-1);
+export function comparison(points, unit, last = points.at(-1)) {
   if (!last) return null;
   const year = last[0].match(/^\d{4}/);
   if (!year) return null;
-  const previousPeriod = last[0].replace(/^\d{4}/, String(Number(year[0]) - 1));
+  const previousPeriod = last[0].replace(/^\d{4}|\d{4}(?=年)/g, value => String(Number(value) - 1));
   const previous = points.find(p => p[0] === previousPeriod);
-  if (!previous) return null;
+  if (!previous || !Number.isFinite(previous[1]) || !Number.isFinite(last[1])) return null;
   const delta = last[1] - previous[1];
   // Percent rates compare in percentage points; negative/zero baselines use absolute change.
   const relative = unit !== '%' && previous[1] > 0;

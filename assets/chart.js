@@ -17,12 +17,17 @@ export function displaySeries(data) {
   const unit = String(data.unit || "").trim();
   const divisor = unit === "百萬澳門元" ? 100 : unit === "千澳門元" ? 100000 : null;
   if (!divisor) return data;
-  return { ...data, unit: "億澳門元", points: data.points.map(([period, value]) => [period, value / divisor]) };
+  return { ...data, unit: "億澳門元", points: data.points.map(([period, value]) => [period, value == null ? null : value / divisor]) };
 }
 
 /* 把「2026年第2季」「1990年1月」轉成可排序的數值，並給出短標籤 */
 export function parsePeriod(s) {
   s = String(s || "");
+  const range = s.match(/^(\d{4})年(\d+)月至(?:(\d{4})年)?(\d+)月$/);
+  if (range) {
+    const year = +(range[3] || range[1]) + (!range[3] && +range[4] < +range[2] ? 1 : 0);
+    return { t: year + (+range[4] - 1) / 12, year, short: s };
+  }
   let m = s.match(/(\d{4})\s*年\s*第?\s*(\d+)\s*季/);
   if (m) return { t: +m[1] + (+m[2] - 1) / 4, year: +m[1], short: `${m[1]} Q${m[2]}` };
   m = s.match(/(\d{4})\s*年\s*(\d+)\s*月/);
@@ -40,17 +45,17 @@ export function parsePeriod(s) {
  */
 export function lineChart(box, data, opt = {}) {
   const pts = data.points.map(([p, v]) => ({ ...parsePeriod(p), label: p, v }))
-                        .filter(p => !isNaN(p.t) && p.v != null)
+                        .filter(p => Number.isFinite(p.t))
                         .sort((a, b) => a.t - b.t);
   box.innerHTML = "";
-  if (pts.length < 2) { box.innerHTML = '<p class="muted">數據點不足，無法繪圖。</p>'; return; }
+  if (!pts.some(p => Number.isFinite(p.v))) { box.innerHTML = '<p class="muted">所選期間沒有可繪製數值。</p>'; return; }
 
   const compact = !!opt.compact;
-  const W = 1000, H = opt.height || (compact ? 150 : 330);
+  const W = compact ? 1000 : Math.max(320, box.clientWidth || 1000), H = opt.height || (compact ? 150 : 330);
   const m = compact ? { t: 8, r: 8, b: 18, l: 8 } : { t: 14, r: 16, b: 30, l: 62 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
 
-  const xs = pts.map(p => p.t), ys = pts.map(p => p.v);
+  const xs = pts.map(p => p.t), ys = pts.filter(p => Number.isFinite(p.v)).map(p => p.v);
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
   let y0 = Math.min(...ys), y1 = Math.max(...ys);
   if (y0 === y1) { y0 -= 1; y1 += 1; }
@@ -82,6 +87,16 @@ export function lineChart(box, data, opt = {}) {
     });
   }
 
+  const segments = [];
+  let segment = [];
+  const stride = data.periodType === '季度' || /季/.test(pts[0]?.label) ? 1/4 : data.periodType === '年度' || /^\d{4}年?$/.test(pts[0]?.label) ? 1 : 1/12;
+  for (const p of pts) {
+    if (segment.length && p.t - segment.at(-1).t > stride + 0.00001) { segments.push(segment); segment = []; }
+    if (!Number.isFinite(p.v)) { if (segment.length) segments.push(segment); segment = []; }
+    else segment.push(p);
+  }
+  if (segment.length) segments.push(segment);
+  for (const pts of segments) {
   const line = pts.map((p, i) => `${i ? "L" : "M"}${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join("");
   if (opt.area !== false) {
     svg.appendChild(el("path", { d: `${line}L${X(pts.at(-1).t)},${Y(y0)}L${X(pts[0].t)},${Y(y0)}Z`,
@@ -95,6 +110,7 @@ export function lineChart(box, data, opt = {}) {
   svg.appendChild(el("circle", { cx: X(last.t), cy: Y(last.v), r: compact ? 3.5 : 4.5,
     fill: "var(--series-1)", stroke: "var(--surface-1)", "stroke-width": 2 }));
 
+  }
   box.appendChild(svg);
   if (compact) return;
 
@@ -107,23 +123,39 @@ export function lineChart(box, data, opt = {}) {
   svg.append(cross, dot, hit);
 
   const tip = document.createElement("div"); tip.className = "tip"; box.appendChild(tip);
-  const show = ev => {
+  const select = best => {
+    cursor = pts.indexOf(best);
     const r = svg.getBoundingClientRect();
-    const px = (ev.clientX - r.left) / r.width * W;
-    let best = pts[0], bd = Infinity;
-    for (const p of pts) { const d = Math.abs(X(p.t) - px); if (d < bd) { bd = d; best = p; } }
     cross.setAttribute("x1", X(best.t)); cross.setAttribute("x2", X(best.t));
     cross.setAttribute("opacity", 1);
-    dot.setAttribute("cx", X(best.t)); dot.setAttribute("cy", Y(best.v)); dot.setAttribute("opacity", 1);
+    dot.setAttribute("cx", X(best.t)); dot.setAttribute("cy", Y(Number.isFinite(best.v) ? best.v : y0)); dot.setAttribute("opacity", Number.isFinite(best.v) ? 1 : 0);
     tip.innerHTML = `${escHtml(best.label)}<br><b>${fmtNum(best.v, data.unit === "億澳門元" ? 2 : null)}</b> ${escHtml(data.unit || "")}`;
     tip.style.opacity = 1;
-    const lx = X(best.t) / W * r.width, ty = Y(best.v) / H * r.height;
+    opt.onSelect?.(best.label);
+    const lx = X(best.t) / W * r.width, ty = Y(Number.isFinite(best.v) ? best.v : y0) / H * r.height;
     tip.style.left = Math.min(Math.max(lx - tip.offsetWidth / 2, 0), r.width - tip.offsetWidth) + "px";
     tip.style.top = Math.max(ty - tip.offsetHeight - 12, 0) + "px";
   };
   const hide = () => { tip.style.opacity = 0; cross.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
-  box.addEventListener("pointermove", show);
-  box.addEventListener("pointerleave", hide);
+  const show = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) / r.width * W;
+    const best = pts.reduce((a, b) => Math.abs(X(a.t) - px) <= Math.abs(X(b.t) - px) ? a : b);
+    select(best);
+  };
+  svg.setAttribute('tabindex', '0');
+  svg.setAttribute('role', 'group');
+  svg.setAttribute('aria-label', (data.title || '') + '互動圖表；左右鍵查看期間，Home / End 跳至首末期');
+  let cursor = pts.length - 1;
+  svg.addEventListener('keydown', ev => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
+    ev.preventDefault();
+    cursor = ev.key === 'Home' ? 0 : ev.key === 'End' ? pts.length - 1 : Math.max(0, Math.min(pts.length - 1, cursor + (ev.key === 'ArrowLeft' ? -1 : 1)));
+    select(pts[cursor]);
+  });
+  svg.addEventListener('pointermove', show);
+  svg.addEventListener('pointerdown', show);
+  svg.addEventListener('pointerleave', hide);
+  return { select: label => { cursor = pts.findIndex(p => p.label === label); if (cursor >= 0) select(pts[cursor]); } };
 }
 
 function niceStep(raw) {
