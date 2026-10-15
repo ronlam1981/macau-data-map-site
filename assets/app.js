@@ -29,7 +29,7 @@ export function initChrome(current) {
 
 let _catalog = null;
 export async function catalog() {
-  if (!_catalog) _catalog = await (await fetch("data/catalog.json?v=4")).json();
+  if (!_catalog) _catalog = await (await fetch("data/catalog.json?v=5")).json();
   return _catalog;
 }
 export async function seriesIndex() {

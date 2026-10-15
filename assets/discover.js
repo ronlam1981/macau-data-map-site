@@ -1,5 +1,5 @@
 import { mountExplorer } from './series-explorer.js?v=1';
-import { initChrome, esc, datasetUrl, officialUrl } from './app.js?v=4';
+import { initChrome, esc, datasetUrl, officialUrl } from './app.js?v=5';
 import { lineChart, displaySeries } from './chart.js?v=6';
 import { EDITORIAL, topicFor, validPoints, comparison, partOfWhole, observationAge } from './story-data.js?v=3';
 import { SHARE_PARENTS, SHARE_COMPLEMENTS } from './story-comparisons.js';
@@ -31,7 +31,7 @@ function readSeries(id) {
 }
 let saved = new Set();
 try { const value = JSON.parse(localStorage.getItem('macau-saved-stories') || '[]'); if (Array.isArray(value)) saved = new Set(value.filter(x => typeof x === 'string')); } catch {}
-let registry = [], selection = [], topic = '全部', query = '', savedOnly = false, limit = 9, renderedCount = 0, renderToken = 0;
+let registry = [], catalogRegistry = [], selection = [], topic = '全部', query = '', savedOnly = false, limit = 9, renderedCount = 0, renderToken = 0;
 let snapshotAt = '網站已儲存資料';
 const releaseSchedulePromise = loadReleaseSchedule();
 let soundOn = true;
@@ -152,9 +152,24 @@ function filterSelection() {
   selection = registry.filter(s => (topic === '全部' || topicFor(s) === topic)
     && (!savedOnly || saved.has(s.id)) && (!query || `${heading(s)} ${s.title} ${s.theme} ${topicFor(s)}`.toLowerCase().includes(query)));
 }
+function catalogMatches() {
+  if (!query) return [];
+  return catalogRegistry.filter(d => `${d.name} ${d.name_pt || ''} ${d.desc || ''} ${d.dept || ''} ${d.theme || ''}`.toLowerCase().includes(query));
+}
+function renderCatalogResults() {
+  const box = $('catalog-results'), matches = catalogMatches();
+  box.hidden = !query;
+  if (!query) { box.replaceChildren(); return matches; }
+  const shown = matches.slice(0, 12);
+  box.innerHTML = `<div class="catalog-results-head"><h3>完整數據目錄</h3><p>${matches.length.toLocaleString('zh-Hant')} 個數據集符合「${esc(query)}」</p></div>
+    <div class="catalog-result-list">${shown.map(d => `<a href="${datasetUrl(d.id)}" class="catalog-result"><strong>${esc(d.name)}</strong><span>${esc(d.dept)} · ${esc(d.theme)}</span><span class="catalog-badges">${d.hasSeries ? '<b>📈 可看圖表</b>' : ''}${d.hasPreview ? '<b>📋 原表預覽</b>' : ''}${!d.hasSeries && !d.hasPreview ? '<b>官方資料頁</b>' : ''}</span></a>`).join('')}</div>
+    ${matches.length > shown.length ? `<a class="catalog-more" href="datasets.html?q=${encodeURIComponent(query)}">在數據目錄查看全部 ${matches.length.toLocaleString('zh-Hant')} 個結果 →</a>` : ''}`;
+  return matches;
+}
 async function renderStories(append = false) {
   const token = ++renderToken;
   filterSelection();
+  const catalogSelection = renderCatalogResults();
   const start = append ? renderedCount : 0;
   const visible = selection.slice(start, limit);
   const moreButton = $('more-stories');
@@ -179,7 +194,9 @@ async function renderStories(append = false) {
   if (cards.length) $('stories').insertAdjacentHTML('beforeend', cards.join(''));
   else if (!append) $('stories').innerHTML = '<div class="empty">暫時沒有符合的故事。試試其他關鍵字或主題；收藏後可在這裡再次找到。</div>';
   renderedCount = start + cards.length;
-  $('story-count').textContent = `${selection.length} 個可探索的統計指標 · 顯示 ${renderedCount} 個`;
+  $('story-count').textContent = query
+    ? `完整目錄 ${catalogSelection.length.toLocaleString('zh-Hant')} 個結果 · 其中 ${selection.length} 個已有圖表故事`
+    : `${selection.length} 個可探索的統計指標 · 顯示 ${renderedCount} 個`;
   moreButton.hidden = renderedCount >= selection.length;
   moreButton.disabled = false;
   moreButton.textContent = `再發現 ${Math.min(9, selection.length - renderedCount)} 個故事 ↓`;
@@ -382,7 +399,11 @@ refreshLive(true);
 setInterval(() => { if (!document.hidden) refreshLive(false); }, 300000);
 
 try {
-  registry = await readJSON('data/series_index.json?v=3');
+  const [seriesRegistry, fullCatalog] = await Promise.all([readJSON('data/series_index.json?v=3'), readJSON('data/catalog.json?v=5')]);
+  registry = seriesRegistry;
+  catalogRegistry = (fullCatalog.datasets || []).filter(d => d.id && d.name);
+  snapshotAt = fullCatalog.generated;
+  $('snapshot-note').textContent = `統計目錄快照：${fullCatalog.generated}。各指標的資料期間以卡片標示為準；不代表來源網站目前的最新版本。`;
   registry = registry.filter(s => s.id && s.datasetId && s.title);
   const order = Object.keys(EDITORIAL);
   registry.sort((a, b) => (order.includes(a.title) ? order.indexOf(a.title) : 999) - (order.includes(b.title) ? order.indexOf(b.title) : 999));
@@ -392,4 +413,3 @@ try {
   await Promise.all([renderStories(), feature()]);
   const requested = new URL(location.href).searchParams.get('story'); if (requested) openStory(requested);
 } catch { $('stories').innerHTML = '<p>故事索引暫時未能讀取。<a href="index.html">重新載入</a>，或先查看上方即時觀測。</p>'; $('stories').setAttribute('aria-busy', 'false'); $('story-count').textContent = '故事暫時未能載入'; $('quiz').textContent = '旅客故事暫時未能讀取。'; }
-readJSON('data/catalog.json?v=4').then(cat => { snapshotAt = cat.generated; $('snapshot-note').textContent = `統計目錄快照：${cat.generated}。各指標的資料期間以卡片標示為準；不代表來源網站目前的最新版本。`; }).catch(() => {});

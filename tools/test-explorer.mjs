@@ -22,10 +22,20 @@ const visitor=idx.find(s=>s.title==='入境旅客' && s.periodType==='月度');
 const raw=JSON.parse(fs.readFileSync('data/series/'+visitor.id+'.json'));
 assert.equal(rangePoints(raw.points,recentStart(raw.points,5),raw.points.at(-1)[0]).length,60);
 console.log('PASS data boundaries and all 316 period series');
+const catalog=JSON.parse(fs.readFileSync('data/catalog.json'));
+assert.equal(catalog.datasets.length,1376);
+const stay=JSON.parse(fs.readFileSync('data/visitor_stay.json'));
+assert.equal(stay.unit,'分鐘');assert.equal(stay.periodEnd,'2026年8月');assert.equal(stay.rows.length,768);
+assert.equal(new Set(stay.rows.map(row=>`${row.period}|${row.origin}|${row.district}`)).size,stay.rows.length);
+assert.equal(new Set(stay.rows.map(row=>row.origin)).size,4);assert.equal(new Set(stay.rows.map(row=>row.district)).size,24);
+console.log('PASS complete 1,376 dataset catalog and 768 exact DGTO groups through 2026年8月');
 const lib=process.env.PLAYWRIGHT_PATH || 'C:/Users/Lut20211016/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs';
 const {chromium}=await import(pathToFileURL(lib));
 await import('../preview.mjs');
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({
+ ...(process.env.PLAYWRIGHT_EXECUTABLE ? {executablePath:process.env.PLAYWRIGHT_EXECUTABLE} : {}),
+ ...(process.env.PLAYWRIGHT_CHANNEL ? {channel:process.env.PLAYWRIGHT_CHANNEL} : {}), headless:true
+});
 fs.mkdirSync('test-results',{recursive:true});
 const errors=[];
 for(const mobile of [false,true]) for(const theme of ['light','dark']) {
@@ -50,6 +60,18 @@ for(const mobile of [false,true]) for(const theme of ['light','dark']) {
   assert.ok(await root.evaluate(e=>e.scrollWidth<=e.clientWidth+1));
   await page.screenshot({path:`test-results/${mobile?'mobile':'desktop'}-${theme}-${route.startsWith('dataset')?'dataset':'story'}.png`,fullPage:false});
  }
+ await page.goto('http://127.0.0.1:8766/index.html');
+ await page.locator('#story-search').fill('按來源地及統計分區的旅客平均逗留時間');
+ const catalogResult=page.locator('#catalog-results .catalog-result').filter({hasText:'澳門區域旅遊數據'});
+ await catalogResult.waitFor();assert.ok((await catalogResult.textContent()).includes('原表預覽'));
+ await page.goto('http://127.0.0.1:8766/dataset.html?id=025edc1e-3836-4984-947b-166376b727ef');
+ const stayRoot=page.locator('.visitor-stay');await stayRoot.waitFor();
+ assert.equal(await stayRoot.locator('[data-origin] option').count(),4);assert.equal(await stayRoot.locator('[data-district] option').count(),24);
+ assert.equal(await stayRoot.locator('tbody tr').count(),8);
+ await stayRoot.locator('[data-origin]').selectOption('香港');await stayRoot.locator('[data-district]').selectOption('中區');
+ assert.ok((await stayRoot.locator('[data-value]').textContent()).includes('2026年8月'));
+ assert.ok((await stayRoot.locator('.visitor-provenance').textContent()).includes('2026-09-25'));
+ await page.screenshot({path:`test-results/${mobile?'mobile':'desktop'}-${theme}-visitor-stay.png`,fullPage:false});
  await context.close(); console.log(`PASS ${mobile?'mobile':'desktop'} ${theme}: dataset + story, controls, CSV, keyboard, tap/click, repeated redraw`);
 }
 const page=await browser.newPage();

@@ -56,7 +56,7 @@
 </footer>
 
 <script type="module">
-import { initChrome, catalog, THEME_ICON, esc, datasetUrl } from "./assets/app.js?v=4";
+import { initChrome, catalog, THEME_ICON, esc, datasetUrl } from "./assets/app.js?v=5";
 initChrome("datasets");
 
 const cat = await catalog();
@@ -116,7 +116,7 @@ function render(reset = true) {
         ${d.hasSeries || derived[d.id]?.series ? '<span class="tag hi">📈 可看圖表</span>' : ""}
         ${derived[d.id]?.places ? '<span class="tag hi">📍 可看地圖</span>' : ""}
         ${derived[d.id]?.bus ? '<span class="tag hi">🚌 可看路線與站序</span>' : ""}
-        ${d.hasPreview ? '<span class="tag hi">可看資料內容</span>' : ""}
+        ${d.hasPreview ? '<span class="tag hi">📋 原表預覽</span>' : ""}
         <span class="tag">${esc(d.freq || "—")}更新</span>
       </div>
     </a>`).join("") || (reset ? '<p class="empty">找不到符合的數據集，試試其他關鍵詞。</p>' : ""));

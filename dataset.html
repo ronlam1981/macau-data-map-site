@@ -7,7 +7,7 @@
 <link rel="icon" href="assets/brand/favicon.png" media="(prefers-color-scheme: light)">
 <link rel="icon" href="assets/brand/favicon-dark.png" media="(prefers-color-scheme: dark)">
 <link rel="apple-touch-icon" href="assets/brand/favicon.png">
-<link rel="stylesheet" href="assets/app.css?v=11">
+<link rel="stylesheet" href="assets/app.css?v=12">
 </head>
 <body>
 
@@ -30,11 +30,12 @@
 </footer>
 
 <script type="module">
-import { initChrome, catalog, seriesIndex, series, THEME_ICON, esc, officialUrl } from "./assets/app.js?v=4";
+import { initChrome, catalog, seriesIndex, series, THEME_ICON, esc, officialUrl } from "./assets/app.js?v=5";
 import { renderEmergency } from "./assets/emergency.js";
 import { renderDerived } from "./assets/derived-view.js?v=3";
 import { loadReleaseSchedule, loadSeriesStatus, relevantRelease, formatReleaseDate } from "./assets/release-info.js?v=1";
 import { mountExplorer } from "./assets/series-explorer.js?v=1";
+import { renderVisitorStay } from "./assets/visitor-stay.js?v=1";
 initChrome("");
 
 const id = new URLSearchParams(location.search).get("id");
@@ -73,7 +74,7 @@ if (!d) {
         <div><dt>官方更新頻率</dt><dd>${esc(d.freq || "—")}</dd></div>
         <div><dt>本站目錄快照</dt><dd>${esc(cat.generated || "—")}</dd></div>
         ${checked ? `<div><dt>平台數值核對</dt><dd>${esc(checked.checkedAt)} · 最新 ${esc(checked.latestPeriod)}</dd></div>` : ''}
-        <div><dt>本站檢查目標</dt><dd>統計數值每日自動核對待平台 API 金鑰啟用；地點及目錄每週人工檢查，<a href="index.html#data-policy">詳見更新安排</a>。</dd></div>
+        <div><dt>本站檢查目標</dt><dd>${d.id === '025edc1e-3836-4984-947b-166376b727ef' ? '每日從政府數據開放平台核對公開 XLSX' : '統計數值每日自動核對待平台 API 金鑰啟用；地點及目錄每週人工檢查'}，<a href="index.html#data-policy">詳見更新安排</a>。</dd></div>
         <div><dt>首次發佈</dt><dd>${esc((d.published || "—").slice(0, 10))}</dd></div>
       </dl>
       ${d.localFiles.length ? `<div class="files">${d.localFiles.map(f => `<div class="file"><span class="nm">${esc(f)}</span></div>`).join("")}</div>` : ""}
@@ -104,7 +105,8 @@ if (!d) {
       mountExplorer(target, raw, { source: officialUrl(d.id) });
     }
   }
-  const enriched = await renderDerived(d, Boolean(d.hasEmergency || mine.length));
+  const visitorStay = await renderVisitorStay(d);
+  const enriched = await renderDerived(d, Boolean(d.hasEmergency || mine.length || visitorStay));
   if (d.hasPreview) {
     try {
       const payload = await (await fetch(`data/previews/${encodeURIComponent(d.id)}.json?v=5`)).json();
