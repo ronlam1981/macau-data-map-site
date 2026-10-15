@@ -403,7 +403,6 @@ try {
   registry = seriesRegistry;
   catalogRegistry = (fullCatalog.datasets || []).filter(d => d.id && d.name);
   snapshotAt = fullCatalog.generated;
-  $('snapshot-note').textContent = `統計目錄快照：${fullCatalog.generated}。各指標的資料期間以卡片標示為準；不代表來源網站目前的最新版本。`;
   registry = registry.filter(s => s.id && s.datasetId && s.title);
   const order = Object.keys(EDITORIAL);
   registry.sort((a, b) => (order.includes(a.title) ? order.indexOf(a.title) : 999) - (order.includes(b.title) ? order.indexOf(b.title) : 999));
